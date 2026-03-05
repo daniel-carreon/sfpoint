@@ -4,6 +4,7 @@ import time
 from ctypes import c_void_p
 import AppKit
 import objc
+from pynput import mouse as pynput_mouse
 from PyQt6.QtWidgets import QWidget, QApplication
 from PyQt6.QtCore import Qt, QTimer, QPointF, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QCursor
@@ -13,7 +14,7 @@ from config import (
     TOOL_LASER, TOOL_TEXT, TOOL_FREEHAND, TOOL_HIGHLIGHTER,
     LASER_TRAIL_LENGTH, DEFAULT_TOOL, DEFAULT_STROKE,
     COLOR_PALETTE, DEFAULT_COLOR_INDEX, STROKE_HIGHLIGHTER,
-    TEXT_FONT_SIZE, COLOR_MORADO,
+    TEXT_FONT_SIZE, COLOR_MORADO, RIPPLE_DURATION,
 )
 
 
@@ -22,6 +23,7 @@ class CanvasWidget(QWidget):
 
     tool_changed = pyqtSignal(str)
     color_changed = pyqtSignal(int)
+    _ripple_signal = pyqtSignal(float, float)  # thread-safe ripple trigger
 
     def __init__(self):
         super().__init__()
@@ -38,6 +40,15 @@ class CanvasWidget(QWidget):
         # Laser state
         self._laser_pos: tuple | None = None
         self._laser_trail: list[tuple] = []
+        self._mouse_listener: pynput_mouse.Listener | None = None
+
+        # Ripple state (morado expanding ring on click)
+        self._ripples: list[dict] = []  # [{pos, start_time}]
+
+        # Laser cursor polling timer
+        self._laser_poll_timer = QTimer()
+        self._laser_poll_timer.setInterval(16)  # ~60fps
+        self._laser_poll_timer.timeout.connect(self._poll_laser_position)
 
         # Text input state
         self._text_mode = False
@@ -71,6 +82,9 @@ class CanvasWidget(QWidget):
         self._cursor_timer = QTimer()
         self._cursor_timer.setInterval(530)
         self._cursor_timer.timeout.connect(self._blink_cursor)
+
+        # Thread-safe ripple signal
+        self._ripple_signal.connect(self._add_ripple, Qt.ConnectionType.QueuedConnection)
 
     def _blink_cursor(self):
         self._text_cursor_visible = not self._text_cursor_visible
@@ -109,6 +123,55 @@ class CanvasWidget(QWidget):
         except Exception:
             pass
 
+    # --- Laser: click-through with cursor polling ---
+
+    def _start_laser_mode(self):
+        """Start laser: click-through + cursor polling + mouse listener for ripples."""
+        self._set_ignores_mouse(True)
+        self._laser_poll_timer.start()
+        # pynput mouse listener for click detection (ripple effect)
+        if not self._mouse_listener:
+            self._mouse_listener = pynput_mouse.Listener(on_click=self._on_global_click)
+            self._mouse_listener.daemon = True
+            self._mouse_listener.start()
+
+    def _stop_laser_mode(self):
+        """Stop laser polling and mouse listener."""
+        self._laser_poll_timer.stop()
+        self._laser_pos = None
+        self._laser_trail.clear()
+        if self._mouse_listener:
+            self._mouse_listener.stop()
+            self._mouse_listener = None
+
+    def _poll_laser_position(self):
+        """Poll QCursor.pos() for laser dot — no mouse capture needed."""
+        global_pos = QCursor.pos()
+        local_pos = self.mapFromGlobal(global_pos)
+        xy = (local_pos.x(), local_pos.y())
+
+        if self._laser_pos != xy:
+            self._laser_pos = xy
+            self._laser_trail.append(xy)
+            if len(self._laser_trail) > LASER_TRAIL_LENGTH:
+                self._laser_trail = self._laser_trail[-LASER_TRAIL_LENGTH:]
+        else:
+            # Mouse not moving — decay trail
+            if self._laser_trail:
+                self._laser_trail.pop(0)
+
+        self.update()
+
+    def _on_global_click(self, x: int, y: int, button: pynput_mouse.Button, pressed: bool):
+        """pynput callback — fires on any global click while laser is active."""
+        if pressed:
+            local = self.mapFromGlobal(QCursor.pos())
+            self._ripple_signal.emit(float(local.x()), float(local.y()))
+
+    def _add_ripple(self, x: float, y: float):
+        """Add a morado ripple at click position (called on main thread via signal)."""
+        self._ripples.append({"pos": (x, y), "start_time": time.time()})
+
     # --- Public API ---
 
     def set_active(self, active: bool):
@@ -116,7 +179,7 @@ class CanvasWidget(QWidget):
         if active == self._active:
             return
         self._active = active
-        self._set_ignores_mouse(not active)
+
         if active:
             try:
                 ns_view = objc.objc_object(c_void_p=c_void_p(self.winId().__int__()))
@@ -124,29 +187,38 @@ class CanvasWidget(QWidget):
                 ns_window.orderFrontRegardless()
             except Exception:
                 pass
+
             if self._tool == TOOL_LASER:
-                self.setCursor(Qt.CursorShape.BlankCursor)
-            elif self._tool == TOOL_TEXT:
-                self.setCursor(Qt.CursorShape.IBeamCursor)
+                self._start_laser_mode()
             else:
-                self.setCursor(Qt.CursorShape.CrossCursor)
+                self._set_ignores_mouse(False)
+                if self._tool == TOOL_TEXT:
+                    self.setCursor(Qt.CursorShape.IBeamCursor)
+                else:
+                    self.setCursor(Qt.CursorShape.CrossCursor)
         else:
             self.unsetCursor()
+            self._stop_laser_mode()
             self._finish_current()
-            self._laser_pos = None
-            self._laser_trail.clear()
             if self._text_mode:
                 self._commit_text()
+            self._set_ignores_mouse(True)
 
     def set_tool(self, tool: str):
+        was_laser = self._tool == TOOL_LASER and self._active
         self._tool = tool
+
         if self._active:
             if tool == TOOL_LASER:
-                self.setCursor(Qt.CursorShape.BlankCursor)
-            elif tool == TOOL_TEXT:
-                self.setCursor(Qt.CursorShape.IBeamCursor)
+                self._start_laser_mode()
             else:
-                self.setCursor(Qt.CursorShape.CrossCursor)
+                if was_laser:
+                    self._stop_laser_mode()
+                self._set_ignores_mouse(False)
+                if tool == TOOL_TEXT:
+                    self.setCursor(Qt.CursorShape.IBeamCursor)
+                else:
+                    self.setCursor(Qt.CursorShape.CrossCursor)
 
     def set_color_index(self, idx: int):
         if 0 <= idx < len(COLOR_PALETTE):
@@ -238,12 +310,7 @@ class CanvasWidget(QWidget):
         xy = (pos.x(), pos.y())
 
         if self._tool == TOOL_LASER:
-            self._laser_pos = xy
-            self._laser_trail.append(xy)
-            if len(self._laser_trail) > LASER_TRAIL_LENGTH:
-                self._laser_trail = self._laser_trail[-LASER_TRAIL_LENGTH:]
-            self.update()
-            return
+            return  # Handled by polling timer
 
         if self._drawing and self._current:
             if self._tool in (TOOL_FREEHAND, TOOL_HIGHLIGHTER):
@@ -308,6 +375,11 @@ class CanvasWidget(QWidget):
                 self._annotations.pop(i)
             changed = True
 
+        # Animate ripples — remove finished ones
+        if self._ripples:
+            self._ripples = [r for r in self._ripples if now - r["start_time"] < RIPPLE_DURATION]
+            changed = True
+
         if changed:
             self.update()
 
@@ -328,6 +400,13 @@ class CanvasWidget(QWidget):
         # Draw laser
         if self._tool == TOOL_LASER and self._active:
             ShapeRenderer.draw_laser(painter, self._laser_pos, self._laser_trail)
+
+        # Draw ripples
+        now = time.time()
+        for ripple in self._ripples:
+            progress = (now - ripple["start_time"]) / RIPPLE_DURATION
+            if 0.0 <= progress < 1.0:
+                ShapeRenderer.draw_ripple(painter, ripple["pos"], progress)
 
         # Draw text cursor
         if self._text_mode and self._text_pos:

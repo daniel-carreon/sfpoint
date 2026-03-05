@@ -29,9 +29,9 @@ Built as a replacement for [Presentify](https://presentify.compzets.com) ($6.99)
 - **7 annotation tools** — arrow, rectangle, circle, freehand, text, laser pointer, highlighter
 - **Toggle-based shortcuts** — Ctrl+key to activate, same key or Esc to deactivate
 - **Auto-fade** — annotations disappear after 3 seconds (configurable)
-- **Laser pointer** — ambar Google Slides-style with glow trail
+- **Laser pointer** — ambar Google Slides-style, click-through (doesn't block mouse), morado ripple on click
 - **No focus stealing** — overlay floats above everything without interrupting your work (native macOS APIs)
-- **Click-through** — when inactive, clicks pass through to apps below
+- **Click-through** — laser always passes clicks through; other tools only capture when active
 - **Floating toolbar** — draggable pill showing current tool and color
 - **Rebindable shortcuts** — settings panel (Ctrl+S) to customize keybindings
 - **Brand colors** — morado (#8B5CF6) + ambar (#F59E0B) from SaaS Factory
@@ -153,10 +153,10 @@ TOOL_SHORTCUTS = {
 FADE_DELAY = 3.0        # seconds before fade starts
 FADE_DURATION = 0.5      # seconds for fade animation
 
-# Laser pointer
-LASER_DOT_RADIUS = 10.0
-LASER_GLOW_RADIUS = 28.0
-LASER_TRAIL_LENGTH = 30  # Google Slides-style trail
+# Laser pointer (subtle, elegant)
+LASER_DOT_RADIUS = 5.0
+LASER_GLOW_RADIUS = 14.0
+LASER_TRAIL_LENGTH = 18  # clean, short trail
 
 # Toolbar
 TOOLBAR_HEIGHT = 34

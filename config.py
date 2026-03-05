@@ -51,10 +51,10 @@ FADE_DELAY = 3.0        # seconds before fade starts
 FADE_DURATION = 0.5      # seconds for fade animation
 CANVAS_FPS = 60          # repaint rate
 
-# --- Laser (ambar, Google Slides style) ---
-LASER_DOT_RADIUS = 10.0
-LASER_GLOW_RADIUS = 28.0
-LASER_TRAIL_LENGTH = 30  # longer trail for Google Slides effect
+# --- Laser (ambar, refined — subtle & elegant) ---
+LASER_DOT_RADIUS = 5.0
+LASER_GLOW_RADIUS = 14.0
+LASER_TRAIL_LENGTH = 18  # short, clean trail
 LASER_COLOR = COLOR_AMBAR  # ambar pointer
 
 # --- Arrow Head ---
@@ -75,6 +75,10 @@ TOOLBAR_ICON_SIZE = 16
 # --- Logo ---
 LOGO_PATH = os.path.join(os.path.dirname(__file__), "logo_small.png")
 LOGO_SIZE = 22
+
+# --- Ripple (click effect on laser) ---
+RIPPLE_MAX_RADIUS = 18.0
+RIPPLE_DURATION = 0.4  # seconds
 
 # --- Highlighter ---
 HIGHLIGHTER_OPACITY = 0.35

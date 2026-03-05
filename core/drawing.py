@@ -11,7 +11,8 @@ from PyQt6.QtGui import (
 from config import (
     ARROW_HEAD_LENGTH, ARROW_HEAD_ANGLE, TEXT_FONT_SIZE,
     LASER_DOT_RADIUS, LASER_GLOW_RADIUS, HIGHLIGHTER_OPACITY,
-    LASER_COLOR,
+    LASER_COLOR, RIPPLE_MAX_RADIUS, RIPPLE_DURATION,
+    COLOR_MORADO,
 )
 
 
@@ -171,19 +172,18 @@ class ShapeRenderer:
 
     @staticmethod
     def draw_laser(painter: QPainter, pos: tuple, trail: list):
-        """Draw ambar laser pointer — Google Slides style with light trail."""
+        """Draw ambar laser pointer — refined, subtle, Google Slides-inspired."""
         painter.setPen(Qt.PenStyle.NoPen)
 
-        # Ambar color components
         lr, lg, lb = LASER_COLOR.red(), LASER_COLOR.green(), LASER_COLOR.blue()
 
-        # Light trail — connected smooth glow that fades
+        # Trail — thin, smooth, fading line
         n = len(trail)
         if n >= 2:
             for i in range(1, n):
                 t = (i + 1) / n  # 0→1 (oldest→newest)
-                alpha = int(t * t * 160)  # quadratic for smooth Google Slides feel
-                width = 2.0 + t * 6.0
+                alpha = int(t * t * 100)
+                width = 1.0 + t * 2.5
                 pen = QPen(QColor(lr, lg, lb, alpha), width,
                            Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
                 painter.setPen(pen)
@@ -198,22 +198,50 @@ class ShapeRenderer:
 
         px, py = pos
 
-        # Outer glow — warm ambar halo
+        # Soft glow halo
         glow = QRadialGradient(QPointF(px, py), LASER_GLOW_RADIUS)
-        glow.setColorAt(0.0, QColor(lr, lg, lb, 90))
-        glow.setColorAt(0.5, QColor(lr, lg, lb, 40))
+        glow.setColorAt(0.0, QColor(lr, lg, lb, 50))
+        glow.setColorAt(0.6, QColor(lr, lg, lb, 20))
         glow.setColorAt(1.0, QColor(lr, lg, lb, 0))
         painter.setBrush(glow)
         painter.drawEllipse(QPointF(px, py), LASER_GLOW_RADIUS, LASER_GLOW_RADIUS)
 
-        # Inner dot — bright center with white core
+        # Clean dot — solid ambar with subtle bright center
         dot = QRadialGradient(QPointF(px, py), LASER_DOT_RADIUS)
-        dot.setColorAt(0.0, QColor(255, 255, 255, 255))
-        dot.setColorAt(0.25, QColor(255, 220, 100, 255))
-        dot.setColorAt(0.6, QColor(lr, lg, lb, 240))
-        dot.setColorAt(1.0, QColor(lr, lg, lb, 160))
+        dot.setColorAt(0.0, QColor(255, 240, 180, 255))
+        dot.setColorAt(0.5, QColor(lr, lg, lb, 240))
+        dot.setColorAt(1.0, QColor(lr, lg, lb, 180))
         painter.setBrush(dot)
         painter.drawEllipse(QPointF(px, py), LASER_DOT_RADIUS, LASER_DOT_RADIUS)
+
+    @staticmethod
+    def draw_ripple(painter: QPainter, pos: tuple, progress: float):
+        """Draw expanding morado ripple on click. progress: 0..1."""
+        if not pos or progress >= 1.0:
+            return
+        mr, mg, mb = COLOR_MORADO.red(), COLOR_MORADO.green(), COLOR_MORADO.blue()
+        px, py = pos
+
+        # Ease-out curve for smooth expansion
+        ease = 1.0 - (1.0 - progress) ** 3
+        radius = 3.0 + ease * RIPPLE_MAX_RADIUS
+
+        # Crisp ring — starts strong, fades gracefully
+        ring_alpha = int(200 * (1.0 - progress) ** 1.5)
+        ring_width = 2.0 * (1.0 - progress * 0.6)
+        painter.setPen(QPen(QColor(mr, mg, mb, ring_alpha), ring_width))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(QPointF(px, py), radius, radius)
+
+        # Soft morado fill — visible but brief
+        fill_alpha = int(80 * (1.0 - progress) ** 2.5)
+        if fill_alpha > 2:
+            grad = QRadialGradient(QPointF(px, py), radius)
+            grad.setColorAt(0.0, QColor(mr, mg, mb, fill_alpha))
+            grad.setColorAt(1.0, QColor(mr, mg, mb, 0))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(grad)
+            painter.drawEllipse(QPointF(px, py), radius, radius)
 
     @staticmethod
     def render(painter: QPainter, ann: Annotation):

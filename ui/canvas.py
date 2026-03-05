@@ -1,0 +1,361 @@
+"""Fullscreen transparent overlay with click-through toggle."""
+
+import time
+from ctypes import c_void_p
+import AppKit
+import objc
+from PyQt6.QtWidgets import QWidget, QApplication
+from PyQt6.QtCore import Qt, QTimer, QPointF, pyqtSignal
+from PyQt6.QtGui import QPainter, QColor, QCursor
+from core.drawing import Annotation, ShapeRenderer
+from config import (
+    CANVAS_FPS, FADE_DELAY, FADE_DURATION,
+    TOOL_LASER, TOOL_TEXT, TOOL_FREEHAND, TOOL_HIGHLIGHTER,
+    LASER_TRAIL_LENGTH, DEFAULT_TOOL, DEFAULT_STROKE,
+    COLOR_PALETTE, DEFAULT_COLOR_INDEX, STROKE_HIGHLIGHTER,
+    TEXT_FONT_SIZE, COLOR_MORADO,
+)
+
+
+class CanvasWidget(QWidget):
+    """Fullscreen transparent overlay. Click-through when inactive, captures mouse when drawing."""
+
+    tool_changed = pyqtSignal(str)
+    color_changed = pyqtSignal(int)
+
+    def __init__(self):
+        super().__init__()
+        self._annotations: list[Annotation] = []
+        self._current: Annotation | None = None
+        self._drawing = False
+        self._active = False
+
+        # Tool state
+        self._tool = DEFAULT_TOOL
+        self._color_index = DEFAULT_COLOR_INDEX
+        self._stroke_width = DEFAULT_STROKE
+
+        # Laser state
+        self._laser_pos: tuple | None = None
+        self._laser_trail: list[tuple] = []
+
+        # Text input state
+        self._text_mode = False
+        self._text_buffer = ""
+        self._text_pos: tuple | None = None
+        self._text_cursor_visible = True
+
+        # Window setup
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+            | Qt.WindowType.WindowDoesNotAcceptFocus
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+
+        # Cover full screen
+        screen = QApplication.primaryScreen()
+        if screen:
+            geo = screen.geometry()
+            self.setGeometry(geo)
+
+        # Fade timer
+        self._fade_timer = QTimer()
+        self._fade_timer.setInterval(1000 // CANVAS_FPS)
+        self._fade_timer.timeout.connect(self._tick_fade)
+        self._fade_timer.start()
+
+        # Text cursor blink
+        self._cursor_timer = QTimer()
+        self._cursor_timer.setInterval(530)
+        self._cursor_timer.timeout.connect(self._blink_cursor)
+
+    def _blink_cursor(self):
+        self._text_cursor_visible = not self._text_cursor_visible
+        self.update()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        try:
+            self._setup_native_macos()
+        except Exception as e:
+            print(f"Warning: native macOS setup failed: {e}")
+        # Start in click-through mode
+        self._set_ignores_mouse(True)
+
+    def _setup_native_macos(self):
+        ns_view = objc.objc_object(c_void_p=c_void_p(self.winId().__int__()))
+        ns_window = ns_view.window()
+        ns_window.setLevel_(AppKit.NSFloatingWindowLevel + 1)
+        ns_window.setStyleMask_(
+            ns_window.styleMask() | AppKit.NSWindowStyleMaskNonactivatingPanel
+        )
+        ns_window.setHidesOnDeactivate_(False)
+        ns_window.setCollectionBehavior_(
+            AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces
+            | AppKit.NSWindowCollectionBehaviorStationary
+            | AppKit.NSWindowCollectionBehaviorFullScreenAuxiliary
+        )
+        ns_window.setBackgroundColor_(AppKit.NSColor.clearColor())
+        ns_window.setOpaque_(False)
+
+    def _set_ignores_mouse(self, ignore: bool):
+        try:
+            ns_view = objc.objc_object(c_void_p=c_void_p(self.winId().__int__()))
+            ns_window = ns_view.window()
+            ns_window.setIgnoresMouseEvents_(ignore)
+        except Exception:
+            pass
+
+    # --- Public API ---
+
+    def set_active(self, active: bool):
+        """Toggle drawing mode on/off."""
+        if active == self._active:
+            return
+        self._active = active
+        self._set_ignores_mouse(not active)
+        if active:
+            try:
+                ns_view = objc.objc_object(c_void_p=c_void_p(self.winId().__int__()))
+                ns_window = ns_view.window()
+                ns_window.orderFrontRegardless()
+            except Exception:
+                pass
+            if self._tool == TOOL_LASER:
+                self.setCursor(Qt.CursorShape.BlankCursor)
+            elif self._tool == TOOL_TEXT:
+                self.setCursor(Qt.CursorShape.IBeamCursor)
+            else:
+                self.setCursor(Qt.CursorShape.CrossCursor)
+        else:
+            self.unsetCursor()
+            self._finish_current()
+            self._laser_pos = None
+            self._laser_trail.clear()
+            if self._text_mode:
+                self._commit_text()
+
+    def set_tool(self, tool: str):
+        self._tool = tool
+        if self._active:
+            if tool == TOOL_LASER:
+                self.setCursor(Qt.CursorShape.BlankCursor)
+            elif tool == TOOL_TEXT:
+                self.setCursor(Qt.CursorShape.IBeamCursor)
+            else:
+                self.setCursor(Qt.CursorShape.CrossCursor)
+
+    def set_color_index(self, idx: int):
+        if 0 <= idx < len(COLOR_PALETTE):
+            self._color_index = idx
+            self.color_changed.emit(idx)
+
+    def set_stroke_width(self, width: float):
+        self._stroke_width = width
+
+    def undo(self):
+        if self._annotations:
+            self._annotations.pop()
+            self.update()
+
+    def clear_all(self):
+        self._annotations.clear()
+        self.update()
+
+    @property
+    def current_tool(self) -> str:
+        return self._tool
+
+    @property
+    def current_color_index(self) -> int:
+        return self._color_index
+
+    @property
+    def is_active(self) -> bool:
+        return self._active
+
+    # --- Drawing ---
+
+    def _finish_current(self):
+        if self._current and len(self._current.points) >= 2:
+            self._annotations.append(self._current)
+        self._current = None
+        self._drawing = False
+
+    def _commit_text(self):
+        if self._text_buffer and self._text_pos:
+            ann = Annotation(
+                tool="text",
+                points=[self._text_pos],
+                color=QColor(COLOR_PALETTE[self._color_index]),
+                stroke_width=self._stroke_width,
+                text=self._text_buffer,
+            )
+            self._annotations.append(ann)
+        self._text_mode = False
+        self._text_buffer = ""
+        self._text_pos = None
+        self._cursor_timer.stop()
+        self.update()
+
+    def mousePressEvent(self, event):
+        if not self._active or event.button() != Qt.MouseButton.LeftButton:
+            return
+        pos = event.position()
+        xy = (pos.x(), pos.y())
+
+        if self._tool == TOOL_TEXT:
+            if self._text_mode:
+                self._commit_text()
+            self._text_mode = True
+            self._text_pos = xy
+            self._text_buffer = ""
+            self._text_cursor_visible = True
+            self._cursor_timer.start()
+            self.update()
+            return
+
+        if self._tool == TOOL_LASER:
+            return
+
+        stroke = STROKE_HIGHLIGHTER if self._tool == TOOL_HIGHLIGHTER else self._stroke_width
+        self._current = Annotation(
+            tool=self._tool,
+            points=[xy],
+            color=QColor(COLOR_PALETTE[self._color_index]),
+            stroke_width=stroke,
+        )
+        self._drawing = True
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        if not self._active:
+            return
+        pos = event.position()
+        xy = (pos.x(), pos.y())
+
+        if self._tool == TOOL_LASER:
+            self._laser_pos = xy
+            self._laser_trail.append(xy)
+            if len(self._laser_trail) > LASER_TRAIL_LENGTH:
+                self._laser_trail = self._laser_trail[-LASER_TRAIL_LENGTH:]
+            self.update()
+            return
+
+        if self._drawing and self._current:
+            if self._tool in (TOOL_FREEHAND, TOOL_HIGHLIGHTER):
+                self._current.points.append(xy)
+            else:
+                # For arrow/rect/circle — only keep start + current end
+                if len(self._current.points) == 1:
+                    self._current.points.append(xy)
+                else:
+                    self._current.points[-1] = xy
+            self.update()
+
+    def mouseReleaseEvent(self, event):
+        if not self._active or event.button() != Qt.MouseButton.LeftButton:
+            return
+        if self._tool == TOOL_LASER:
+            return
+        if self._tool == TOOL_TEXT:
+            return
+        self._finish_current()
+        self.update()
+
+    def keyPressEvent(self, event):
+        if not self._text_mode:
+            return
+        key = event.key()
+        text = event.text()
+
+        if key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
+            self._commit_text()
+        elif key == Qt.Key.Key_Escape:
+            self._text_mode = False
+            self._text_buffer = ""
+            self._text_pos = None
+            self._cursor_timer.stop()
+            self.update()
+        elif key == Qt.Key.Key_Backspace:
+            self._text_buffer = self._text_buffer[:-1]
+            self.update()
+        elif text and text.isprintable():
+            self._text_buffer += text
+            self.update()
+
+    # --- Fade ---
+
+    def _tick_fade(self):
+        now = time.time()
+        changed = False
+        to_remove = []
+
+        for i, ann in enumerate(self._annotations):
+            age = now - ann.created_at
+            if age > FADE_DELAY:
+                fade_progress = (age - FADE_DELAY) / FADE_DURATION
+                ann.opacity = max(0.0, 1.0 - fade_progress)
+                changed = True
+                if ann.opacity <= 0:
+                    to_remove.append(i)
+
+        if to_remove:
+            for i in reversed(to_remove):
+                self._annotations.pop(i)
+            changed = True
+
+        if changed:
+            self.update()
+
+    # --- Paint ---
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Draw all persisted annotations
+        for ann in self._annotations:
+            ShapeRenderer.render(painter, ann)
+
+        # Draw current in-progress shape
+        if self._current:
+            ShapeRenderer.render(painter, self._current)
+
+        # Draw laser
+        if self._tool == TOOL_LASER and self._active:
+            ShapeRenderer.draw_laser(painter, self._laser_pos, self._laser_trail)
+
+        # Draw text cursor
+        if self._text_mode and self._text_pos:
+            from PyQt6.QtGui import QFont
+            color = COLOR_PALETTE[self._color_index]
+            font = QFont(".AppleSystemUIFont", TEXT_FONT_SIZE)
+            font.setBold(True)
+            painter.setFont(font)
+
+            # Measure text width for cursor position
+            fm = painter.fontMetrics()
+            text_w = fm.horizontalAdvance(self._text_buffer)
+            tx, ty = self._text_pos
+
+            # Draw text so far
+            if self._text_buffer:
+                painter.setPen(color)
+                painter.drawText(QPointF(tx, ty), self._text_buffer)
+
+            # Draw cursor
+            if self._text_cursor_visible:
+                cursor_x = tx + text_w + 2
+                cursor_y_top = ty - fm.ascent()
+                cursor_y_bot = ty + fm.descent()
+                painter.setPen(QColor(255, 255, 255, 200))
+                painter.drawLine(
+                    QPointF(cursor_x, cursor_y_top),
+                    QPointF(cursor_x, cursor_y_bot),
+                )
+
+        painter.end()

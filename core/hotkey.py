@@ -10,7 +10,7 @@ Uses pynput with Qt signals (QueuedConnection required).
 
 from pynput import keyboard
 from PyQt6.QtCore import QObject, pyqtSignal
-from config import TOOL_SHORTCUTS, SHORTCUT_HIDE_TOOLBAR, SHORTCUT_SETTINGS
+from config import TOOL_SHORTCUTS, TOOL_LASER, SHORTCUT_HIDE_TOOLBAR, SHORTCUT_SETTINGS
 
 
 class HotkeyListener(QObject):
@@ -27,6 +27,7 @@ class HotkeyListener(QObject):
 
     tool_toggled = pyqtSignal(str)
     deactivated = pyqtSignal()
+    laser_toggled = pyqtSignal(bool)  # independent laser on/off
     hide_toolbar = pyqtSignal()
     open_settings = pyqtSignal()
     undo_requested = pyqtSignal()
@@ -38,6 +39,7 @@ class HotkeyListener(QObject):
         self._cmd_held = False
         self._shift_held = False
         self._active_tool: str | None = None
+        self._laser_on = False
         self._shortcuts = dict(TOOL_SHORTCUTS)
         self._listener: keyboard.Listener | None = None
 
@@ -111,7 +113,11 @@ class HotkeyListener(QObject):
         # Tool shortcuts
         if char_lower in self._shortcuts:
             tool = self._shortcuts[char_lower]
-            if self._active_tool == tool:
+            if tool == TOOL_LASER:
+                # Laser is independent — toggle without affecting active tool
+                self._laser_on = not self._laser_on
+                self.laser_toggled.emit(self._laser_on)
+            elif self._active_tool == tool:
                 # Toggle off
                 self._active_tool = None
                 self.deactivated.emit()

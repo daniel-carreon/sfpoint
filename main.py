@@ -37,6 +37,10 @@ def main():
         lambda: _on_deactivated(canvas, toolbar),
         Qt.ConnectionType.QueuedConnection,
     )
+    hotkey.laser_toggled.connect(
+        lambda on: _on_laser_toggled(canvas, toolbar, on),
+        Qt.ConnectionType.QueuedConnection,
+    )
     hotkey.hide_toolbar.connect(
         toolbar.toggle_visibility,
         Qt.ConnectionType.QueuedConnection,
@@ -88,6 +92,15 @@ def _on_tool_toggled(canvas: CanvasWidget, toolbar: ToolbarWidget, tool: str):
 def _on_deactivated(canvas: CanvasWidget, toolbar: ToolbarWidget):
     canvas.set_active(False)
     toolbar.set_active(False)
+
+
+def _on_laser_toggled(canvas: CanvasWidget, toolbar: ToolbarWidget, on: bool):
+    canvas.set_laser(on)
+    if on:
+        toolbar.update_tool("laser")
+        toolbar.set_active(True)
+    elif not canvas.is_active:
+        toolbar.set_active(False)
 
 
 if __name__ == "__main__":

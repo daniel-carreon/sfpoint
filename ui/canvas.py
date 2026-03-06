@@ -1,5 +1,7 @@
 """Fullscreen transparent overlay with click-through toggle."""
 
+import ctypes
+import ctypes.util
 import time
 from ctypes import c_void_p
 import AppKit
@@ -14,8 +16,31 @@ from config import (
     TOOL_LASER, TOOL_TEXT, TOOL_FREEHAND, TOOL_HIGHLIGHTER,
     LASER_TRAIL_LENGTH, DEFAULT_TOOL, DEFAULT_STROKE,
     COLOR_PALETTE, DEFAULT_COLOR_INDEX, STROKE_HIGHLIGHTER,
-    TEXT_FONT_SIZE, COLOR_MORADO, RIPPLE_DURATION,
+    TEXT_FONT_SIZE, RIPPLE_DURATION,
 )
+
+# --- Core Graphics cursor control (system-wide, not per-app like NSCursor) ---
+_cg_path = ctypes.util.find_library("CoreGraphics")
+if not _cg_path:
+    _cg_path = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
+_cg = ctypes.cdll.LoadLibrary(_cg_path)
+_cg.CGMainDisplayID.argtypes = []
+_cg.CGMainDisplayID.restype = ctypes.c_uint32
+_cg.CGDisplayHideCursor.argtypes = [ctypes.c_uint32]
+_cg.CGDisplayHideCursor.restype = ctypes.c_int32
+_cg.CGDisplayShowCursor.argtypes = [ctypes.c_uint32]
+_cg.CGDisplayShowCursor.restype = ctypes.c_int32
+_CG_DISPLAY = _cg.CGMainDisplayID()
+
+
+def _cg_hide_cursor():
+    """Hide cursor at Core Graphics level — system-wide, survives app switches."""
+    _cg.CGDisplayHideCursor(_CG_DISPLAY)
+
+
+def _cg_show_cursor():
+    """Show cursor at Core Graphics level."""
+    _cg.CGDisplayShowCursor(_CG_DISPLAY)
 
 
 class CanvasWidget(QWidget):
@@ -37,10 +62,12 @@ class CanvasWidget(QWidget):
         self._color_index = DEFAULT_COLOR_INDEX
         self._stroke_width = DEFAULT_STROKE
 
-        # Laser state
+        # Laser state (independent layer)
+        self._laser_active = False
         self._laser_pos: tuple | None = None
         self._laser_trail: list[tuple] = []
         self._mouse_listener: pynput_mouse.Listener | None = None
+        self._cursor_hidden = False  # tracks if we're actively hiding
 
         # Ripple state (morado expanding ring on click)
         self._ripples: list[dict] = []  # [{pos, start_time}]
@@ -86,6 +113,19 @@ class CanvasWidget(QWidget):
         # Thread-safe ripple signal
         self._ripple_signal.connect(self._add_ripple, Qt.ConnectionType.QueuedConnection)
 
+    def _grab_focus(self):
+        """Temporarily allow focus for text input."""
+        self.setWindowFlag(Qt.WindowType.WindowDoesNotAcceptFocus, False)
+        self.show()  # re-apply flags
+        self.activateWindow()
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _release_focus(self):
+        """Restore no-focus behavior after text input."""
+        self.setWindowFlag(Qt.WindowType.WindowDoesNotAcceptFocus, True)
+        self.show()  # re-apply flags
+        self._set_ignores_mouse(not self._active or self._tool == TOOL_LASER)
+
     def _blink_cursor(self):
         self._text_cursor_visible = not self._text_cursor_visible
         self.update()
@@ -123,15 +163,27 @@ class CanvasWidget(QWidget):
         except Exception:
             pass
 
+    def _bring_to_front(self):
+        try:
+            ns_view = objc.objc_object(c_void_p=c_void_p(self.winId().__int__()))
+            ns_window = ns_view.window()
+            ns_window.orderFrontRegardless()
+        except Exception:
+            pass
+
     # --- Laser: click-through with cursor polling ---
 
     def _start_laser_mode(self):
         """Start laser: click-through + cursor polling + mouse listener for ripples."""
         self._set_ignores_mouse(True)
         self._laser_poll_timer.start()
-        # pynput mouse listener for click detection (ripple effect)
+        # pynput mouse listener: on_move hides cursor IN the CGEventTap pipeline
+        # (before macOS window server can show it), on_click for ripple + re-hide
         if not self._mouse_listener:
-            self._mouse_listener = pynput_mouse.Listener(on_click=self._on_global_click)
+            self._mouse_listener = pynput_mouse.Listener(
+                on_move=self._on_global_move,
+                on_click=self._on_global_click,
+            )
             self._mouse_listener.daemon = True
             self._mouse_listener.start()
 
@@ -146,6 +198,10 @@ class CanvasWidget(QWidget):
 
     def _poll_laser_position(self):
         """Poll QCursor.pos() for laser dot — no mouse capture needed."""
+        # Backstop: re-hide every 16ms in case click/app-switch showed cursor
+        if self._cursor_hidden:
+            _cg_hide_cursor()
+
         global_pos = QCursor.pos()
         local_pos = self.mapFromGlobal(global_pos)
         xy = (local_pos.x(), local_pos.y())
@@ -162,17 +218,56 @@ class CanvasWidget(QWidget):
 
         self.update()
 
+    def _on_global_move(self, x: int, y: int):
+        """pynput callback — re-hide cursor on every move via CGEventTap."""
+        try:
+            if self._cursor_hidden:
+                _cg.CGDisplayHideCursor(_CG_DISPLAY)
+        except Exception:
+            pass
+
     def _on_global_click(self, x: int, y: int, button: pynput_mouse.Button, pressed: bool):
         """pynput callback — fires on any global click while laser is active."""
-        if pressed:
-            local = self.mapFromGlobal(QCursor.pos())
-            self._ripple_signal.emit(float(local.x()), float(local.y()))
+        try:
+            if self._cursor_hidden:
+                _cg.CGDisplayHideCursor(_CG_DISPLAY)
+            if pressed:
+                self._ripple_signal.emit(float(x), float(y))
+        except Exception:
+            pass
 
     def _add_ripple(self, x: float, y: float):
-        """Add a morado ripple at click position (called on main thread via signal)."""
-        self._ripples.append({"pos": (x, y), "start_time": time.time()})
+        """Add a morado ripple at click position (called on main thread via signal).
+
+        x, y are global screen coords from pynput — convert to local widget coords.
+        """
+        from PyQt6.QtCore import QPoint
+        local = self.mapFromGlobal(QPoint(int(x), int(y)))
+        self._ripples.append({"pos": (local.x(), local.y()), "start_time": time.time()})
 
     # --- Public API ---
+
+    def set_laser(self, on: bool):
+        """Toggle laser independently from drawing tools."""
+        if on == self._laser_active:
+            return
+        self._laser_active = on
+        if on:
+            self._bring_to_front()
+            self._start_laser_mode()
+            self._cursor_hidden = True
+            _cg_hide_cursor()
+        else:
+            self._cursor_hidden = False
+            self._stop_laser_mode()
+            # Brute-force show: CG hide/show is ref-counted, so call show
+            # enough times to guarantee the counter reaches 0
+            for _ in range(500):
+                _cg_show_cursor()
+            # If no drawing tool active, restore click-through
+            if not self._active:
+                self._set_ignores_mouse(True)
+        self.update()
 
     def set_active(self, active: bool):
         """Toggle drawing mode on/off."""
@@ -181,44 +276,27 @@ class CanvasWidget(QWidget):
         self._active = active
 
         if active:
-            try:
-                ns_view = objc.objc_object(c_void_p=c_void_p(self.winId().__int__()))
-                ns_window = ns_view.window()
-                ns_window.orderFrontRegardless()
-            except Exception:
-                pass
-
-            if self._tool == TOOL_LASER:
-                self._start_laser_mode()
+            self._bring_to_front()
+            self._set_ignores_mouse(False)
+            if self._tool == TOOL_TEXT:
+                self.setCursor(Qt.CursorShape.IBeamCursor)
             else:
-                self._set_ignores_mouse(False)
-                if self._tool == TOOL_TEXT:
-                    self.setCursor(Qt.CursorShape.IBeamCursor)
-                else:
-                    self.setCursor(Qt.CursorShape.CrossCursor)
+                self.setCursor(Qt.CursorShape.CrossCursor)
         else:
             self.unsetCursor()
-            self._stop_laser_mode()
             self._finish_current()
             if self._text_mode:
                 self._commit_text()
-            self._set_ignores_mouse(True)
+            self._set_ignores_mouse(True)  # always click-through when no drawing tool
 
     def set_tool(self, tool: str):
-        was_laser = self._tool == TOOL_LASER and self._active
         self._tool = tool
-
         if self._active:
-            if tool == TOOL_LASER:
-                self._start_laser_mode()
+            self._set_ignores_mouse(False)
+            if tool == TOOL_TEXT:
+                self.setCursor(Qt.CursorShape.IBeamCursor)
             else:
-                if was_laser:
-                    self._stop_laser_mode()
-                self._set_ignores_mouse(False)
-                if tool == TOOL_TEXT:
-                    self.setCursor(Qt.CursorShape.IBeamCursor)
-                else:
-                    self.setCursor(Qt.CursorShape.CrossCursor)
+                self.setCursor(Qt.CursorShape.CrossCursor)
 
     def set_color_index(self, idx: int):
         if 0 <= idx < len(COLOR_PALETTE):
@@ -249,6 +327,10 @@ class CanvasWidget(QWidget):
     def is_active(self) -> bool:
         return self._active
 
+    @property
+    def is_laser_active(self) -> bool:
+        return self._laser_active
+
     # --- Drawing ---
 
     def _finish_current(self):
@@ -271,6 +353,7 @@ class CanvasWidget(QWidget):
         self._text_buffer = ""
         self._text_pos = None
         self._cursor_timer.stop()
+        self._release_focus()
         self.update()
 
     def mousePressEvent(self, event):
@@ -287,6 +370,7 @@ class CanvasWidget(QWidget):
             self._text_buffer = ""
             self._text_cursor_visible = True
             self._cursor_timer.start()
+            self._grab_focus()
             self.update()
             return
 
@@ -346,6 +430,7 @@ class CanvasWidget(QWidget):
             self._text_buffer = ""
             self._text_pos = None
             self._cursor_timer.stop()
+            self._release_focus()
             self.update()
         elif key == Qt.Key.Key_Backspace:
             self._text_buffer = self._text_buffer[:-1]
@@ -397,8 +482,8 @@ class CanvasWidget(QWidget):
         if self._current:
             ShapeRenderer.render(painter, self._current)
 
-        # Draw laser
-        if self._tool == TOOL_LASER and self._active:
+        # Draw laser (independent layer)
+        if self._laser_active:
             ShapeRenderer.draw_laser(painter, self._laser_pos, self._laser_trail)
 
         # Draw ripples

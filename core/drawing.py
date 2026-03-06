@@ -10,7 +10,7 @@ from PyQt6.QtGui import (
 )
 from config import (
     ARROW_HEAD_LENGTH, ARROW_HEAD_ANGLE, TEXT_FONT_SIZE,
-    LASER_DOT_RADIUS, LASER_GLOW_RADIUS, HIGHLIGHTER_OPACITY,
+    LASER_DOT_RADIUS, HIGHLIGHTER_OPACITY,
     LASER_COLOR, RIPPLE_MAX_RADIUS, RIPPLE_DURATION,
     COLOR_MORADO,
 )
@@ -198,15 +198,7 @@ class ShapeRenderer:
 
         px, py = pos
 
-        # Soft glow halo
-        glow = QRadialGradient(QPointF(px, py), LASER_GLOW_RADIUS)
-        glow.setColorAt(0.0, QColor(lr, lg, lb, 50))
-        glow.setColorAt(0.6, QColor(lr, lg, lb, 20))
-        glow.setColorAt(1.0, QColor(lr, lg, lb, 0))
-        painter.setBrush(glow)
-        painter.drawEllipse(QPointF(px, py), LASER_GLOW_RADIUS, LASER_GLOW_RADIUS)
-
-        # Clean dot — solid ambar with subtle bright center
+        # Clean dot — solid ambar, no glow/halo
         dot = QRadialGradient(QPointF(px, py), LASER_DOT_RADIUS)
         dot.setColorAt(0.0, QColor(255, 240, 180, 255))
         dot.setColorAt(0.5, QColor(lr, lg, lb, 240))

@@ -93,10 +93,18 @@ class CanvasWidget(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
 
-        # Cover full screen
+        # Cover ALL screens (virtual desktop bounding rect)
+        self._update_geometry()
+        # Re-cover if monitors added/removed
+        app = QApplication.instance()
+        if app:
+            app.screenAdded.connect(self._update_geometry)
+            app.screenRemoved.connect(self._update_geometry)
+
+    def _update_geometry(self, _screen=None):
         screen = QApplication.primaryScreen()
         if screen:
-            geo = screen.geometry()
+            geo = screen.virtualGeometry()
             self.setGeometry(geo)
 
         # Fade timer

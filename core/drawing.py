@@ -182,49 +182,44 @@ class ShapeRenderer:
 
         lr, lg, lb = LASER_COLOR.red(), LASER_COLOR.green(), LASER_COLOR.blue()
 
-        # Trail as continuous path — eliminates visible circles at segment joins
+        # Trail width matches dot diameter for a thick, bold laser trail
+        # FlatCap prevents overlapping circle artifacts at segment joins
         dot_diam = LASER_DOT_RADIUS * 2.0
 
         n = len(trail)
         if n >= 2:
-            # Build a smooth path through all trail points
-            path = QPainterPath()
-            path.moveTo(*trail[0])
-            if n == 2:
-                path.lineTo(*trail[1])
-            else:
-                for i in range(1, n - 1):
-                    x0, y0 = trail[i]
-                    x1, y1 = trail[i + 1]
-                    path.quadTo(x0, y0, (x0 + x1) / 2.0, (y0 + y1) / 2.0)
-                path.lineTo(*trail[-1])
-
-            # Fade factor based on trail length (shorter = more faded)
-            t_fade = min(n / 10.0, 1.0)
-
             # Pass 1: Wide soft glow underneath (the "neon bleed")
-            pen1 = QPen(QColor(lr, lg, lb, int(30 * t_fade)),
-                        dot_diam * 2.5,
-                        Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
-            painter.setPen(pen1)
-            painter.drawPath(path)
+            for i in range(1, n):
+                t = (i + 1) / n
+                alpha = int(t * t * 30)
+                width = dot_diam + t * dot_diam * 1.5
+                pen = QPen(QColor(lr, lg, lb, alpha), width,
+                           Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap)
+                painter.setPen(pen)
+                painter.drawLine(QPointF(*trail[i - 1]), QPointF(*trail[i]))
 
             # Pass 2: Mid glow layer
-            pen2 = QPen(QColor(lr, lg, lb, int(70 * t_fade)),
-                        dot_diam * 0.9,
-                        Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
-            painter.setPen(pen2)
-            painter.drawPath(path)
+            for i in range(1, n):
+                t = (i + 1) / n
+                alpha = int(t * t * 80)
+                width = dot_diam * 0.5 + t * dot_diam * 0.6
+                pen = QPen(QColor(lr, lg, lb, alpha), width,
+                           Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap)
+                painter.setPen(pen)
+                painter.drawLine(QPointF(*trail[i - 1]), QPointF(*trail[i]))
 
             # Pass 3: Bright core line (hot white-ambar center)
-            core_r = lr + int((255 - lr) * 0.5)
-            core_g = lg + int((240 - lg) * 0.3)
-            core_b = lb + int((180 - lb) * 0.2)
-            pen3 = QPen(QColor(core_r, core_g, core_b, int(180 * t_fade)),
-                        dot_diam * 0.35,
-                        Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
-            painter.setPen(pen3)
-            painter.drawPath(path)
+            for i in range(1, n):
+                t = (i + 1) / n
+                r = lr + int((255 - lr) * t * 0.6)
+                g = lg + int((240 - lg) * t * 0.4)
+                b = lb + int((180 - lb) * t * 0.3)
+                alpha = int(t * t * 200)
+                width = dot_diam * 0.2 + t * dot_diam * 0.4
+                pen = QPen(QColor(r, g, b, alpha), width,
+                           Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap)
+                painter.setPen(pen)
+                painter.drawLine(QPointF(*trail[i - 1]), QPointF(*trail[i]))
 
             painter.setPen(Qt.PenStyle.NoPen)
 

@@ -32,12 +32,12 @@ TOOL_LABELS = {
 }
 
 TOOL_SHORTCUT_LABELS = {
-    TOOL_ARROW: "^A",
-    TOOL_RECT: "^R",
-    TOOL_CIRCLE: "^C",
-    TOOL_FREEHAND: "^F",
-    TOOL_TEXT: "^T",
-    TOOL_LASER: "^P",
+    TOOL_ARROW: "\u2325A",
+    TOOL_RECT: "\u2325R",
+    TOOL_CIRCLE: "\u2325C",
+    TOOL_FREEHAND: "\u2325F",
+    TOOL_TEXT: "\u2325T",
+    TOOL_LASER: "\u2325P",
     TOOL_HIGHLIGHTER: "",
 }
 
@@ -356,7 +356,7 @@ class ToolbarWidget(QWidget):
 
         menu.addSeparator()
 
-        settings_action = menu.addAction("  Settings      ^S")
+        settings_action = menu.addAction("  Settings      \u2325S")
         settings_action.triggered.connect(self.settings_requested.emit)
 
         menu.addSeparator()

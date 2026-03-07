@@ -1,8 +1,8 @@
 """SFPoint — Screen Annotation Tool.
 
-Ctrl+key toggles annotation tools on/off.
-Ctrl+A=arrow, Ctrl+R=rect, Ctrl+C=circle, Ctrl+F=freehand,
-Ctrl+T=text, Ctrl+P=pointer, Ctrl+H=hide toolbar, Ctrl+S=settings.
+Option+key toggles annotation tools on/off.
+Option+A=arrow, Option+R=rect, Option+C=circle, Option+F=freehand,
+Option+T=text, Option+P=pointer, Option+H=hide toolbar, Option+S=settings.
 Esc=deactivate, Cmd+Z=undo, Cmd+Shift+Z=clear all.
 """
 
@@ -79,6 +79,11 @@ def main():
     toolbar.settings_requested.connect(settings.toggle)
     toolbar.quit_requested.connect(app.quit)
 
+    # Right-click anywhere on canvas opens toolbar's context menu
+    canvas.context_menu_requested.connect(
+        lambda pos: toolbar._show_context_menu(pos),
+    )
+
     # Show UI
     canvas.show()
     toolbar.show()
@@ -86,11 +91,10 @@ def main():
     hotkey.start()
 
     print("SFPoint running.")
-    print("  Ctrl+A=arrow  Ctrl+R=rect  Ctrl+C=circle  Ctrl+F=freehand")
-    print("  Ctrl+T=text   Ctrl+P=pointer")
-    print("  Ctrl+H=hide toolbar  Ctrl+S=settings")
-    print("  Cmd+Z=undo  Cmd+Shift+Z=clear  Esc=deactivate")
-    print("  Ctrl+C to quit (when no tool active)")
+    print("  \u2325A=arrow  \u2325R=rect  \u2325C=circle  \u2325F=freehand")
+    print("  \u2325T=text   \u2325P=pointer")
+    print("  \u2325H=hide toolbar  \u2325S=settings")
+    print("  \u2318Z=undo  \u2318\u21e7Z=clear  Esc=deactivate  Right-click=menu")
 
     exit_code = app.exec()
     hotkey.stop()

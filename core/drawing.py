@@ -51,7 +51,8 @@ class ShapeRenderer:
             return
         angle = math.atan2(dy, dx)
         head_angle = math.radians(ARROW_HEAD_ANGLE)
-        head_len = ARROW_HEAD_LENGTH
+        # Scale arrowhead with stroke width (base 14 at stroke 3)
+        head_len = ARROW_HEAD_LENGTH * max(1.0, ann.stroke_width / 3.0)
 
         # Arrowhead vertices — head BASE sits at end of line, tip extends beyond
         left = QPointF(

@@ -48,6 +48,7 @@ class CanvasWidget(QWidget):
 
     tool_changed = pyqtSignal(str)
     color_changed = pyqtSignal(int)
+    context_menu_requested = pyqtSignal(object)  # global QPoint
     _ripple_signal = pyqtSignal(float, float)  # thread-safe ripple trigger
 
     def __init__(self):
@@ -366,9 +367,10 @@ class CanvasWidget(QWidget):
         self.update()
 
     def mousePressEvent(self, event):
-        # Always let right-click pass through so the toolbar context menu works
+        # Right-click opens context menu anywhere on screen
         if event.button() == Qt.MouseButton.RightButton:
-            event.ignore()
+            self.context_menu_requested.emit(event.globalPosition().toPoint())
+            event.accept()
             return
         if not self._active or event.button() != Qt.MouseButton.LeftButton:
             return

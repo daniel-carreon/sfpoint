@@ -3,7 +3,7 @@ import json
 from PyQt6.QtGui import QColor
 
 # --- Brand Colors ---
-COLOR_MORADO = QColor(139, 92, 246)      # #8B5CF6
+COLOR_MORADO = QColor(140, 39, 241)      # #8C27F1
 COLOR_AMBAR = QColor(245, 158, 11)       # #F59E0B
 COLOR_RED = QColor(239, 68, 68)          # #EF4444
 COLOR_GREEN = QColor(34, 197, 94)        # #22C55E

@@ -252,32 +252,61 @@ class ShapeRenderer:
 
     @staticmethod
     def draw_ripple(painter: QPainter, pos: tuple, progress: float):
-        """Draw expanding morado ripple on click. progress: 0..1."""
+        """Draw bold expanding morado shockwave on click. progress: 0..1."""
         if not pos or progress >= 1.0:
             return
         mr, mg, mb = COLOR_MORADO.red(), COLOR_MORADO.green(), COLOR_MORADO.blue()
         px, py = pos
+        center = QPointF(px, py)
 
-        # Ease-out curve for smooth expansion
+        # Ease-out for smooth deceleration
         ease = 1.0 - (1.0 - progress) ** 3
-        radius = 3.0 + ease * RIPPLE_MAX_RADIUS
+        radius = 5.0 + ease * RIPPLE_MAX_RADIUS
+        fade = (1.0 - progress)
 
-        # Crisp ring — starts strong, fades gracefully
-        ring_alpha = int(200 * (1.0 - progress) ** 1.5)
-        ring_width = 2.0 * (1.0 - progress * 0.6)
-        painter.setPen(QPen(QColor(mr, mg, mb, ring_alpha), ring_width))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawEllipse(QPointF(px, py), radius, radius)
+        # Layer 1: Outer soft bloom (big, faint halo)
+        bloom_r = radius * 1.6
+        bloom_alpha = int(40 * fade ** 2)
+        if bloom_alpha > 1:
+            grad_bloom = QRadialGradient(center, bloom_r)
+            grad_bloom.setColorAt(0.0, QColor(mr, mg, mb, bloom_alpha))
+            grad_bloom.setColorAt(0.5, QColor(mr, mg, mb, bloom_alpha // 2))
+            grad_bloom.setColorAt(1.0, QColor(mr, mg, mb, 0))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(grad_bloom)
+            painter.drawEllipse(center, bloom_r, bloom_r)
 
-        # Soft morado fill — visible but brief
-        fill_alpha = int(80 * (1.0 - progress) ** 2.5)
+        # Layer 2: Dense morado fill — the main shockwave body
+        fill_alpha = int(160 * fade ** 1.8)
         if fill_alpha > 2:
-            grad = QRadialGradient(QPointF(px, py), radius)
+            grad = QRadialGradient(center, radius)
             grad.setColorAt(0.0, QColor(mr, mg, mb, fill_alpha))
+            grad.setColorAt(0.4, QColor(mr, mg, mb, int(fill_alpha * 0.7)))
+            grad.setColorAt(0.8, QColor(mr, mg, mb, int(fill_alpha * 0.3)))
             grad.setColorAt(1.0, QColor(mr, mg, mb, 0))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(grad)
-            painter.drawEllipse(QPointF(px, py), radius, radius)
+            painter.drawEllipse(center, radius, radius)
+
+        # Layer 3: Thick bright ring at the expanding edge
+        ring_alpha = int(255 * fade ** 1.3)
+        ring_width = 3.5 * fade + 1.0
+        painter.setPen(QPen(QColor(mr, mg, mb, ring_alpha), ring_width))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(center, radius, radius)
+
+        # Layer 4: Hot white-morado core flash (visible at start, fades fast)
+        if progress < 0.4:
+            core_fade = 1.0 - (progress / 0.4)
+            core_alpha = int(200 * core_fade ** 2)
+            core_r = 4.0 + ease * 8.0
+            grad_core = QRadialGradient(center, core_r)
+            grad_core.setColorAt(0.0, QColor(255, 255, 255, core_alpha))
+            grad_core.setColorAt(0.5, QColor(mr, mg, mb, core_alpha))
+            grad_core.setColorAt(1.0, QColor(mr, mg, mb, 0))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(grad_core)
+            painter.drawEllipse(center, core_r, core_r)
 
     @staticmethod
     def render(painter: QPainter, ann: Annotation):

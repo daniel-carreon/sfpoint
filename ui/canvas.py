@@ -366,6 +366,10 @@ class CanvasWidget(QWidget):
         self.update()
 
     def mousePressEvent(self, event):
+        # Always let right-click pass through so the toolbar context menu works
+        if event.button() == Qt.MouseButton.RightButton:
+            event.ignore()
+            return
         if not self._active or event.button() != Qt.MouseButton.LeftButton:
             return
         pos = event.position()

@@ -192,7 +192,7 @@ class ShapeRenderer:
             for i in range(1, n):
                 t = (i + 1) / n
                 alpha = int(t * t * 30)
-                width = dot_diam + t * dot_diam * 1.5
+                width = t * dot_diam * 2.5
                 pen = QPen(QColor(lr, lg, lb, alpha), width,
                            Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap)
                 painter.setPen(pen)
@@ -202,7 +202,7 @@ class ShapeRenderer:
             for i in range(1, n):
                 t = (i + 1) / n
                 alpha = int(t * t * 80)
-                width = dot_diam * 0.5 + t * dot_diam * 0.6
+                width = t * dot_diam * 1.1
                 pen = QPen(QColor(lr, lg, lb, alpha), width,
                            Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap)
                 painter.setPen(pen)
@@ -215,7 +215,7 @@ class ShapeRenderer:
                 g = lg + int((240 - lg) * t * 0.4)
                 b = lb + int((180 - lb) * t * 0.3)
                 alpha = int(t * t * 200)
-                width = dot_diam * 0.2 + t * dot_diam * 0.4
+                width = t * dot_diam * 0.6
                 pen = QPen(QColor(r, g, b, alpha), width,
                            Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap)
                 painter.setPen(pen)

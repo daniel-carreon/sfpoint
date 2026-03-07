@@ -79,7 +79,7 @@ LOGO_PATH = os.path.join(os.path.dirname(__file__), "logo_small.png")
 LOGO_SIZE = 22
 
 # --- Ripple (click effect on laser) ---
-RIPPLE_MAX_RADIUS = 40.0
+RIPPLE_MAX_RADIUS = 20.0
 RIPPLE_DURATION = 0.55  # seconds
 
 # --- Highlighter ---

@@ -42,18 +42,20 @@ DEFAULT_TOOL = TOOL_ARROW
 STROKE_THIN = 2.0
 STROKE_MEDIUM = 3.0
 STROKE_THICK = 5.0
+STROKE_EXTRA = 8.0
+STROKE_HEAVY = 12.0
 STROKE_HIGHLIGHTER = 20.0
 DEFAULT_STROKE = STROKE_MEDIUM
-STROKE_STEPS = [STROKE_THIN, STROKE_MEDIUM, STROKE_THICK]
+STROKE_STEPS = [STROKE_THIN, STROKE_MEDIUM, STROKE_THICK, STROKE_EXTRA, STROKE_HEAVY]
 
 # --- Fade ---
 FADE_DELAY = 3.0        # seconds before fade starts
 FADE_DURATION = 0.5      # seconds for fade animation
 CANVAS_FPS = 60          # repaint rate
 
-# --- Laser (ambar, refined — subtle & elegant) ---
-LASER_DOT_RADIUS = 5.0
-LASER_GLOW_RADIUS = 14.0
+# --- Laser (ambar, neon bloom — Google Slides-inspired size) ---
+LASER_DOT_RADIUS = 7.5
+LASER_GLOW_RADIUS = 21.0
 LASER_TRAIL_LENGTH = 18  # short, clean trail
 LASER_COLOR = COLOR_AMBAR  # ambar pointer
 

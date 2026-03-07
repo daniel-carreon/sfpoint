@@ -44,12 +44,6 @@ class ShapeRenderer:
         p1, p2 = QPointF(*ann.points[0]), QPointF(*ann.points[-1])
         color = _color_with_alpha(ann.color, ann.opacity)
 
-        pen = QPen(color, ann.stroke_width, Qt.PenStyle.SolidLine,
-                    Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawLine(p1, p2)
-
         dx = p2.x() - p1.x()
         dy = p2.y() - p1.y()
         length = math.hypot(dx, dy)
@@ -59,6 +53,7 @@ class ShapeRenderer:
         head_angle = math.radians(ARROW_HEAD_ANGLE)
         head_len = ARROW_HEAD_LENGTH
 
+        # Arrowhead vertices — head BASE sits at end of line, tip extends beyond
         left = QPointF(
             p2.x() - head_len * math.cos(angle - head_angle),
             p2.y() - head_len * math.sin(angle - head_angle),
@@ -68,6 +63,15 @@ class ShapeRenderer:
             p2.y() - head_len * math.sin(angle + head_angle),
         )
 
+        # Line ends at base of arrowhead (not at p2) so tip is a clean triangle
+        base_mid = QPointF((left.x() + right.x()) / 2.0, (left.y() + right.y()) / 2.0)
+        pen = QPen(color, ann.stroke_width, Qt.PenStyle.SolidLine,
+                    Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawLine(p1, base_mid)
+
+        # Filled triangular arrowhead: base_left → tip (p2) → base_right
         path = QPainterPath()
         path.moveTo(p2)
         path.lineTo(left)
@@ -177,13 +181,16 @@ class ShapeRenderer:
 
         lr, lg, lb = LASER_COLOR.red(), LASER_COLOR.green(), LASER_COLOR.blue()
 
+        # Trail width matches dot diameter for a thick, bold laser trail
+        dot_diam = LASER_DOT_RADIUS * 2.0
+
         n = len(trail)
         if n >= 2:
             # Pass 1: Wide soft glow underneath (the "neon bleed")
             for i in range(1, n):
                 t = (i + 1) / n
                 alpha = int(t * t * 30)
-                width = 4.0 + t * 10.0
+                width = dot_diam + t * dot_diam * 1.5
                 pen = QPen(QColor(lr, lg, lb, alpha), width,
                            Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
                 painter.setPen(pen)
@@ -193,7 +200,7 @@ class ShapeRenderer:
             for i in range(1, n):
                 t = (i + 1) / n
                 alpha = int(t * t * 80)
-                width = 2.0 + t * 4.0
+                width = dot_diam * 0.5 + t * dot_diam * 0.6
                 pen = QPen(QColor(lr, lg, lb, alpha), width,
                            Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
                 painter.setPen(pen)
@@ -202,12 +209,11 @@ class ShapeRenderer:
             # Pass 3: Bright core line (hot white-ambar center)
             for i in range(1, n):
                 t = (i + 1) / n
-                # Blend from ambar to white toward the newest point
                 r = lr + int((255 - lr) * t * 0.6)
                 g = lg + int((240 - lg) * t * 0.4)
                 b = lb + int((180 - lb) * t * 0.3)
                 alpha = int(t * t * 200)
-                width = 1.0 + t * 1.8
+                width = dot_diam * 0.2 + t * dot_diam * 0.4
                 pen = QPen(QColor(r, g, b, alpha), width,
                            Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
                 painter.setPen(pen)

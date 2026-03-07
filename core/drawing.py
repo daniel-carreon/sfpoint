@@ -10,7 +10,7 @@ from PyQt6.QtGui import (
 )
 from config import (
     ARROW_HEAD_LENGTH, ARROW_HEAD_ANGLE, TEXT_FONT_SIZE,
-    LASER_DOT_RADIUS, HIGHLIGHTER_OPACITY,
+    LASER_DOT_RADIUS, LASER_GLOW_RADIUS, HIGHLIGHTER_OPACITY,
     LASER_COLOR, RIPPLE_MAX_RADIUS, RIPPLE_DURATION,
     COLOR_MORADO,
 )
@@ -172,39 +172,77 @@ class ShapeRenderer:
 
     @staticmethod
     def draw_laser(painter: QPainter, pos: tuple, trail: list):
-        """Draw ambar laser pointer — refined, subtle, Google Slides-inspired."""
+        """Draw neon laser pointer with bloom glow and luminous trail."""
         painter.setPen(Qt.PenStyle.NoPen)
 
         lr, lg, lb = LASER_COLOR.red(), LASER_COLOR.green(), LASER_COLOR.blue()
 
-        # Trail — thin, smooth, fading line
         n = len(trail)
         if n >= 2:
+            # Pass 1: Wide soft glow underneath (the "neon bleed")
             for i in range(1, n):
-                t = (i + 1) / n  # 0→1 (oldest→newest)
-                alpha = int(t * t * 100)
-                width = 1.0 + t * 2.5
+                t = (i + 1) / n
+                alpha = int(t * t * 30)
+                width = 4.0 + t * 10.0
                 pen = QPen(QColor(lr, lg, lb, alpha), width,
                            Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
                 painter.setPen(pen)
-                painter.drawLine(
-                    QPointF(*trail[i - 1]),
-                    QPointF(*trail[i]),
-                )
+                painter.drawLine(QPointF(*trail[i - 1]), QPointF(*trail[i]))
+
+            # Pass 2: Mid glow layer
+            for i in range(1, n):
+                t = (i + 1) / n
+                alpha = int(t * t * 80)
+                width = 2.0 + t * 4.0
+                pen = QPen(QColor(lr, lg, lb, alpha), width,
+                           Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+                painter.setPen(pen)
+                painter.drawLine(QPointF(*trail[i - 1]), QPointF(*trail[i]))
+
+            # Pass 3: Bright core line (hot white-ambar center)
+            for i in range(1, n):
+                t = (i + 1) / n
+                # Blend from ambar to white toward the newest point
+                r = lr + int((255 - lr) * t * 0.6)
+                g = lg + int((240 - lg) * t * 0.4)
+                b = lb + int((180 - lb) * t * 0.3)
+                alpha = int(t * t * 200)
+                width = 1.0 + t * 1.8
+                pen = QPen(QColor(r, g, b, alpha), width,
+                           Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+                painter.setPen(pen)
+                painter.drawLine(QPointF(*trail[i - 1]), QPointF(*trail[i]))
+
             painter.setPen(Qt.PenStyle.NoPen)
 
         if not pos:
             return
 
         px, py = pos
+        center = QPointF(px, py)
+        painter.setPen(Qt.PenStyle.NoPen)
 
-        # Clean dot — solid ambar, no glow/halo
-        dot = QRadialGradient(QPointF(px, py), LASER_DOT_RADIUS)
-        dot.setColorAt(0.0, QColor(255, 240, 180, 255))
-        dot.setColorAt(0.5, QColor(lr, lg, lb, 240))
-        dot.setColorAt(1.0, QColor(lr, lg, lb, 180))
-        painter.setBrush(dot)
-        painter.drawEllipse(QPointF(px, py), LASER_DOT_RADIUS, LASER_DOT_RADIUS)
+        # Use drawRect instead of drawEllipse — the radial gradient creates
+        # the circular shape, but a rect has no curved edge to anti-alias.
+        # This eliminates the dark fringe artifact entirely.
+        full_r = LASER_GLOW_RADIUS * 2.5
+        dot_stop = LASER_DOT_RADIUS / full_r
+        glow_stop = LASER_GLOW_RADIUS / full_r
+        bloom_stop = (LASER_GLOW_RADIUS * 2.0) / full_r
+
+        grad = QRadialGradient(center, full_r)
+        grad.setColorAt(0.0, QColor(255, 250, 220, 255))
+        grad.setColorAt(dot_stop * 0.4, QColor(255, 220, 140, 240))
+        grad.setColorAt(dot_stop * 0.7, QColor(lr, lg, lb, 210))
+        grad.setColorAt(dot_stop, QColor(lr, lg, lb, 160))
+        grad.setColorAt(glow_stop * 0.6, QColor(lr, lg, lb, 60))
+        grad.setColorAt(glow_stop, QColor(lr, lg, lb, 25))
+        grad.setColorAt(bloom_stop * 0.7, QColor(lr, lg, lb, 10))
+        grad.setColorAt(bloom_stop, QColor(lr, lg, lb, 3))
+        grad.setColorAt(1.0, QColor(lr, lg, lb, 0))
+
+        painter.setBrush(grad)
+        painter.drawRect(QRectF(px - full_r, py - full_r, full_r * 2, full_r * 2))
 
     @staticmethod
     def draw_ripple(painter: QPainter, pos: tuple, progress: float):

@@ -64,6 +64,21 @@ def main():
         Qt.ConnectionType.QueuedConnection,
     )
 
+    # --- Context menu signals from toolbar ---
+    toolbar.tool_selected.connect(
+        lambda tool: _on_context_tool(canvas, toolbar, hotkey, tool),
+    )
+    toolbar.color_selected.connect(
+        lambda idx: _on_context_color(canvas, toolbar, idx),
+    )
+    toolbar.stroke_selected.connect(
+        lambda w: _on_context_stroke(canvas, toolbar, w),
+    )
+    toolbar.undo_requested.connect(canvas.undo)
+    toolbar.clear_requested.connect(canvas.clear_all)
+    toolbar.settings_requested.connect(settings.toggle)
+    toolbar.quit_requested.connect(app.quit)
+
     # Show UI
     canvas.show()
     toolbar.show()
@@ -101,6 +116,43 @@ def _on_laser_toggled(canvas: CanvasWidget, toolbar: ToolbarWidget, on: bool):
         toolbar.set_active(True)
     elif not canvas.is_active:
         toolbar.set_active(False)
+
+
+def _on_context_tool(canvas: CanvasWidget, toolbar: ToolbarWidget, hotkey, tool: str):
+    from config import TOOL_LASER
+    if tool == TOOL_LASER:
+        # Toggle laser
+        new_state = not canvas.is_laser_active
+        canvas.set_laser(new_state)
+        if new_state:
+            toolbar.update_tool("laser")
+            toolbar.set_active(True)
+        elif not canvas.is_active:
+            toolbar.set_active(False)
+        # Sync hotkey internal state
+        hotkey._laser_on = new_state
+    else:
+        # If clicking the already-active tool, deactivate
+        if canvas.is_active and canvas.current_tool == tool:
+            canvas.set_active(False)
+            toolbar.set_active(False)
+            hotkey._active_tool = None
+        else:
+            canvas.set_tool(tool)
+            canvas.set_active(True)
+            toolbar.update_tool(tool)
+            toolbar.set_active(True)
+            hotkey._active_tool = tool
+
+
+def _on_context_color(canvas: CanvasWidget, toolbar: ToolbarWidget, idx: int):
+    canvas.set_color_index(idx)
+    toolbar.update_color(idx)
+
+
+def _on_context_stroke(canvas: CanvasWidget, toolbar: ToolbarWidget, width: float):
+    canvas.set_stroke_width(width)
+    toolbar.update_stroke(width)
 
 
 if __name__ == "__main__":

@@ -7,9 +7,9 @@ Ctrl+H toggles visibility.
 from ctypes import c_void_p
 import AppKit
 import objc
-from PyQt6.QtWidgets import QWidget, QApplication
-from PyQt6.QtCore import Qt, QRectF, QPointF
-from PyQt6.QtGui import QPainter, QColor, QPainterPath, QPen, QPixmap, QFont
+from PyQt6.QtWidgets import QWidget, QApplication, QMenu, QWidgetAction, QHBoxLayout, QLabel
+from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal
+from PyQt6.QtGui import QPainter, QColor, QPainterPath, QPen, QPixmap, QFont, QAction, QIcon
 from config import (
     TOOLBAR_HEIGHT, TOOLBAR_WIDTH, TOOLBAR_OPACITY, TOOLBAR_CORNER_RADIUS,
     TOOLBAR_MARGIN_BOTTOM, TOOLBAR_ICON_SIZE, LOGO_PATH, LOGO_SIZE,
@@ -17,6 +17,7 @@ from config import (
     TOOL_ARROW, TOOL_RECT, TOOL_CIRCLE, TOOL_FREEHAND,
     TOOL_TEXT, TOOL_LASER, TOOL_HIGHLIGHTER,
     LASER_COLOR,
+    STROKE_THIN, STROKE_MEDIUM, STROKE_THICK,
 )
 
 
@@ -41,13 +42,58 @@ TOOL_SHORTCUT_LABELS = {
 }
 
 
+_MENU_STYLE = """
+QMenu {
+    background-color: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 4px 0;
+    color: #e0e0e0;
+    font-family: ".AppleSystemUIFont";
+    font-size: 12px;
+}
+QMenu::item {
+    padding: 6px 20px 6px 12px;
+    border-radius: 4px;
+    margin: 1px 4px;
+}
+QMenu::item:selected {
+    background-color: #8B5CF6;
+    color: white;
+}
+QMenu::separator {
+    height: 1px;
+    background: #333;
+    margin: 4px 8px;
+}
+"""
+
+COLOR_NAMES = ["Morado", "Ambar", "Rojo", "Verde", "Blanco"]
+COLOR_HEX = ["#8B5CF6", "#F59E0B", "#EF4444", "#22C55E", "#FFFFFF"]
+
+STROKE_LABELS = {STROKE_THIN: "Thin", STROKE_MEDIUM: "Medium", STROKE_THICK: "Thick"}
+
+# Tool display order for context menu
+TOOL_ORDER = [TOOL_ARROW, TOOL_RECT, TOOL_CIRCLE, TOOL_FREEHAND, TOOL_TEXT, TOOL_HIGHLIGHTER, TOOL_LASER]
+
+
 class ToolbarWidget(QWidget):
     """Pill-style floating toolbar showing current tool and color."""
+
+    # Context menu signals
+    tool_selected = pyqtSignal(str)
+    color_selected = pyqtSignal(int)
+    stroke_selected = pyqtSignal(float)
+    undo_requested = pyqtSignal()
+    clear_requested = pyqtSignal()
+    settings_requested = pyqtSignal()
+    quit_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
         self._tool = DEFAULT_TOOL
         self._color_index = DEFAULT_COLOR_INDEX
+        self._stroke_width = STROKE_MEDIUM
         self._active = False
         self._drag_pos = None
 
@@ -110,6 +156,10 @@ class ToolbarWidget(QWidget):
 
     def update_color(self, index: int):
         self._color_index = index
+        self.update()
+
+    def update_stroke(self, width: float):
+        self._stroke_width = width
         self.update()
 
     def set_active(self, active: bool):
@@ -259,9 +309,70 @@ class ToolbarWidget(QWidget):
             painter.setPen(pen2)
             painter.drawLine(QPointF(cx - s, cy), QPointF(cx + s, cy))
 
+    # --- Context Menu (Right-Click) ---
+
+    def _show_context_menu(self, global_pos):
+        menu = QMenu()
+        menu.setStyleSheet(_MENU_STYLE)
+
+        # --- Tools ---
+        for tool in TOOL_ORDER:
+            label = TOOL_LABELS.get(tool, tool)
+            shortcut = TOOL_SHORTCUT_LABELS.get(tool, "")
+            text = f"  {label}  {shortcut}" if shortcut else f"  {label}"
+            action = menu.addAction(text)
+            action.setCheckable(True)
+            action.setChecked(self._tool == tool and self._active)
+            action.triggered.connect(lambda checked, t=tool: self.tool_selected.emit(t))
+
+        menu.addSeparator()
+
+        # --- Colors ---
+        color_menu = menu.addMenu("  Color")
+        color_menu.setStyleSheet(_MENU_STYLE)
+        for i, name in enumerate(COLOR_NAMES):
+            action = color_menu.addAction(f"  {name}")
+            action.setCheckable(True)
+            action.setChecked(self._color_index == i)
+            action.triggered.connect(lambda checked, idx=i: self.color_selected.emit(idx))
+
+        # --- Stroke ---
+        stroke_menu = menu.addMenu("  Stroke")
+        stroke_menu.setStyleSheet(_MENU_STYLE)
+        for width, label in STROKE_LABELS.items():
+            action = stroke_menu.addAction(f"  {label}")
+            action.setCheckable(True)
+            action.setChecked(abs(self._stroke_width - width) < 0.1)
+            action.triggered.connect(lambda checked, w=width: self.stroke_selected.emit(w))
+
+        menu.addSeparator()
+
+        # --- Actions ---
+        undo_action = menu.addAction("  Undo          \u2318Z")
+        undo_action.triggered.connect(self.undo_requested.emit)
+
+        clear_action = menu.addAction("  Clear All    \u2318\u21e7Z")
+        clear_action.triggered.connect(self.clear_requested.emit)
+
+        menu.addSeparator()
+
+        settings_action = menu.addAction("  Settings      ^S")
+        settings_action.triggered.connect(self.settings_requested.emit)
+
+        menu.addSeparator()
+
+        quit_action = menu.addAction("  Quit SFPoint")
+        quit_action.triggered.connect(self.quit_requested.emit)
+
+        menu.exec(global_pos)
+
     # --- Dragging ---
 
     def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.RightButton:
+            self._show_context_menu(event.globalPosition().toPoint())
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()

@@ -162,6 +162,7 @@ class CanvasWidget(QWidget):
         )
         ns_window.setBackgroundColor_(AppKit.NSColor.clearColor())
         ns_window.setOpaque_(False)
+        ns_window.setHasShadow_(False)
 
     def _set_ignores_mouse(self, ignore: bool):
         try:

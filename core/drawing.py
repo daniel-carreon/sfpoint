@@ -183,7 +183,7 @@ class ShapeRenderer:
         lr, lg, lb = LASER_COLOR.red(), LASER_COLOR.green(), LASER_COLOR.blue()
 
         # Trail width matches dot diameter for a thick, bold laser trail
-        # FlatCap prevents overlapping circle artifacts at segment joins
+        # FlatCap with overlapping segments — short overlap hides flat ends
         dot_diam = LASER_DOT_RADIUS * 2.0
 
         n = len(trail)

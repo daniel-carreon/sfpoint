@@ -15,9 +15,19 @@ from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtCore import Qt
 from config import IS_BUNDLE, LOGO_PATH
 from core.hotkey import HotkeyListener
-from ui.canvas import CanvasWidget
+from ui.canvas import CanvasManager
 from ui.toolbar import ToolbarWidget
 from ui.settings import SettingsPanel
+
+
+def _ensure_accessibility() -> bool:
+    """Prompt macOS to grant Accessibility if not trusted. Returns True if already trusted."""
+    try:
+        from ApplicationServices import AXIsProcessTrustedWithOptions
+        return AXIsProcessTrustedWithOptions({"AXTrustedCheckOptionPrompt": True})
+    except Exception:
+        return True
+
 
 # --- Launch Agent ---
 _BUNDLE_ID = "so.saasfactory.sfpoint"
@@ -52,7 +62,7 @@ def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
-    canvas = CanvasWidget()
+    canvas = CanvasManager()
     toolbar = ToolbarWidget()
     settings = SettingsPanel()
     hotkey = HotkeyListener()
@@ -142,6 +152,9 @@ def main():
     canvas.show()
     toolbar.show()
 
+    # Request Accessibility permission (shows macOS prompt if not granted)
+    _ensure_accessibility()
+
     hotkey.start()
 
     # --- Hide from Dock (menu bar only) ---
@@ -163,19 +176,19 @@ def main():
     sys.exit(exit_code)
 
 
-def _on_tool_toggled(canvas: CanvasWidget, toolbar: ToolbarWidget, tool: str):
+def _on_tool_toggled(canvas: CanvasManager, toolbar: ToolbarWidget, tool: str):
     canvas.set_tool(tool)
     canvas.set_active(True)
     toolbar.update_tool(tool)
     toolbar.set_active(True)
 
 
-def _on_deactivated(canvas: CanvasWidget, toolbar: ToolbarWidget):
+def _on_deactivated(canvas: CanvasManager, toolbar: ToolbarWidget):
     canvas.set_active(False)
     toolbar.set_active(False)
 
 
-def _on_laser_toggled(canvas: CanvasWidget, toolbar: ToolbarWidget, on: bool):
+def _on_laser_toggled(canvas: CanvasManager, toolbar: ToolbarWidget, on: bool):
     canvas.set_laser(on)
     if on:
         toolbar.update_tool("laser")
@@ -184,7 +197,7 @@ def _on_laser_toggled(canvas: CanvasWidget, toolbar: ToolbarWidget, on: bool):
         toolbar.set_active(False)
 
 
-def _on_context_tool(canvas: CanvasWidget, toolbar: ToolbarWidget, hotkey, tool: str):
+def _on_context_tool(canvas: CanvasManager, toolbar: ToolbarWidget, hotkey, tool: str):
     from config import TOOL_LASER
     if tool == TOOL_LASER:
         # Toggle laser
@@ -211,12 +224,12 @@ def _on_context_tool(canvas: CanvasWidget, toolbar: ToolbarWidget, hotkey, tool:
             hotkey._active_tool = tool
 
 
-def _on_context_color(canvas: CanvasWidget, toolbar: ToolbarWidget, idx: int):
+def _on_context_color(canvas: CanvasManager, toolbar: ToolbarWidget, idx: int):
     canvas.set_color_index(idx)
     toolbar.update_color(idx)
 
 
-def _on_context_stroke(canvas: CanvasWidget, toolbar: ToolbarWidget, width: float):
+def _on_context_stroke(canvas: CanvasManager, toolbar: ToolbarWidget, width: float):
     canvas.set_stroke_width(width)
     toolbar.update_stroke(width)
 

@@ -8,196 +8,52 @@ SFPoint is a macOS screen annotation tool (Presentify replacement). Toggle-based
 
 ---
 
-## Automated Setup (AI Agent — Fresh Machine)
-
-Follow these steps IN ORDER. Each step depends on the previous one.
-
-### Step 1: Verify Prerequisites
+## Quick Start (Dev Mode)
 
 ```bash
-# Check macOS version (needs 15+)
-sw_vers -productVersion
-
-# Check if Homebrew is installed
-which brew || echo "INSTALL HOMEBREW FIRST: /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
-
-# Check if Python 3.12+ is available
-python3.12 --version 2>/dev/null || python3 --version
-# If python3.12 not found:
-# brew install python@3.12
-```
-
-**IMPORTANT:** Python 3.12+ is REQUIRED. The codebase uses `list[]` generics and `|` union syntax which are 3.10+ features, and some dependencies need 3.12.
-
-### Step 2: Clone Repository
-
-```bash
-# Choose your install location (default: ~/Developer/software/)
-mkdir -p ~/Developer/software
-cd ~/Developer/software
+# 1. Clone
 git clone https://github.com/daniel-carreon/sfpoint.git
 cd sfpoint
-```
 
-### Step 3: Create Virtual Environment
-
-```bash
-# Find the exact Python 3.12 binary path
-PYTHON_BIN=$(which python3.12 2>/dev/null || find /opt/homebrew/Cellar/python@3.12 -name "Python" -path "*/Resources/Python.app/Contents/MacOS/Python" 2>/dev/null | head -1)
-
-# If neither found, install it
-if [ -z "$PYTHON_BIN" ]; then
-    brew install python@3.12
-    PYTHON_BIN=$(find /opt/homebrew/Cellar/python@3.12 -name "Python" -path "*/Resources/Python.app/Contents/MacOS/Python" | head -1)
-fi
-
-echo "Using Python: $PYTHON_BIN"
-
-# Create venv with the correct Python
-$PYTHON_BIN -m venv venv
-```
-
-### Step 4: Install Dependencies
-
-```bash
-# Activate and install
+# 2. Create virtual environment
+python3 -m venv venv
 source venv/bin/activate
-pip install --upgrade pip
+
+# 3. Install Python dependencies
 pip install -r requirements.txt
+
+# 4. Run
+python3 main.py
 ```
 
-**Dependencies:** PyQt6, pynput, pyobjc-framework-Cocoa, numpy
-
-### Step 5: Validate Installation
+## Build Desktop App (.app bundle)
 
 ```bash
-# Quick import test (should exit cleanly with no errors)
-PYTHONPATH=venv/lib/python3.12/site-packages $PYTHON_BIN -c "
-from PyQt6.QtWidgets import QApplication
-from pynput import keyboard
-import objc
-import numpy
-print('All imports OK')
-"
+# Build SFPoint.app (generates icns, builds with PyInstaller, signs ad-hoc)
+bash build.sh
+
+# Install to Applications (MUST use ditto, not cp -r)
+ditto dist/SFPoint.app /Applications/SFPoint.app
+
+# Remove quarantine if needed
+xattr -cr /Applications/SFPoint.app
 ```
 
-If this fails, check:
-- `pip list` in venv to verify packages installed
-- `python3.12 --version` to verify Python version
+The .app bundle is self-contained (~90MB). No Python, no venv, no terminal needed.
+The app lives in the menu bar (no Dock icon).
 
-### Step 6: Configure Shell Aliases
+### Build Requirements
+- Python 3.12+ with venv
+- PyInstaller (installed automatically by build.sh)
 
-```bash
-# Detect the exact Python binary path and site-packages for aliases
-SFPOINT_DIR="$HOME/Developer/software/sfpoint"
-PYTHON_BIN=$(head -1 "$SFPOINT_DIR/venv/bin/python3" | sed 's/#!//')
-
-# If that doesn't work, find it from the venv config
-if [ ! -f "$PYTHON_BIN" ]; then
-    PYTHON_HOME=$(grep "home" "$SFPOINT_DIR/venv/pyvenv.cfg" | cut -d'=' -f2 | tr -d ' ')
-    PYTHON_BIN="$PYTHON_HOME/python3.12"
-fi
-
-# For background execution we need the Framework Python binary (macOS GUI apps requirement)
-# The venv python won't work for GUI apps run in background — we need the actual Framework binary
-FRAMEWORK_PYTHON=$(find /opt/homebrew/Cellar/python@3.12 -name "Python" -path "*/Resources/Python.app/Contents/MacOS/Python" 2>/dev/null | head -1)
-SITE_PACKAGES="$SFPOINT_DIR/venv/lib/python3.12/site-packages"
-
-echo ""
-echo "Add these lines to your ~/.zshrc:"
-echo ""
-echo "# SFPoint - Screen Annotation Tool"
-echo "alias sfpoint='pkill -f \"sfpoint/main.py\" 2>/dev/null; sleep 0.5; PYTHONPATH=$SITE_PACKAGES $FRAMEWORK_PYTHON $SFPOINT_DIR/main.py &>/dev/null & disown; echo \"SFPoint running\"'"
-echo "alias sfpoint-off='pkill -f \"sfpoint/main.py\" 2>/dev/null; echo \"SFPoint stopped\"'"
-```
-
-**To apply automatically (AI agent can run this):**
-
-```bash
-# Remove old sfpoint aliases if they exist
-sed -i '' '/# SFPoint/d' ~/.zshrc 2>/dev/null
-sed -i '' '/alias sfpoint/d' ~/.zshrc 2>/dev/null
-
-# Detect paths
-SFPOINT_DIR="$HOME/Developer/software/sfpoint"
-FRAMEWORK_PYTHON=$(find /opt/homebrew/Cellar/python@3.12 -name "Python" -path "*/Resources/Python.app/Contents/MacOS/Python" 2>/dev/null | head -1)
-SITE_PACKAGES="$SFPOINT_DIR/venv/lib/python3.12/site-packages"
-
-# Append aliases
-cat >> ~/.zshrc << ALIASES
-
-# SFPoint - Screen Annotation Tool
-alias sfpoint='pkill -f "sfpoint/main.py" 2>/dev/null; sleep 0.5; PYTHONPATH=$SITE_PACKAGES $FRAMEWORK_PYTHON $SFPOINT_DIR/main.py &>/dev/null & disown; echo "SFPoint running"'
-alias sfpoint-off='pkill -f "sfpoint/main.py" 2>/dev/null; echo "SFPoint stopped"'
-ALIASES
-
-echo "Aliases added. Run: source ~/.zshrc"
-```
-
-**WHY FRAMEWORK_PYTHON?** macOS requires the Framework Python binary (not the venv symlink) for GUI applications that run in background with `& disown`. The venv `python3` symlink will fail silently for background GUI processes. The Framework binary path looks like:
-`/opt/homebrew/Cellar/python@3.12/X.Y.Z/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python`
-
-### Step 7: macOS Permissions
+## macOS Permissions Required
 
 **CRITICAL — SFPoint will NOT work without these permissions.**
 
-The user must manually grant these (cannot be automated):
+- **Accessibility**: System Settings > Privacy & Security > Accessibility > add SFPoint.app (or your Terminal for dev mode)
+- **Input Monitoring**: System Settings > Privacy & Security > Input Monitoring > add SFPoint.app (or your Terminal for dev mode)
 
-1. **System Settings > Privacy & Security > Accessibility**
-   - Add your Terminal app (Terminal.app, iTerm2, VS Code, Warp, etc.)
-   - This enables: global hotkeys, overlay window interaction
-
-2. **System Settings > Privacy & Security > Input Monitoring**
-   - Add the SAME Terminal app
-   - This enables: pynput keyboard listener (Ctrl+key detection)
-
-**How to verify permissions are granted:**
-```bash
-# Run SFPoint in foreground to see any permission errors
-cd ~/Developer/software/sfpoint
-source venv/bin/activate
-python3 main.py
-# If hotkeys don't work -> permissions missing
-# If you see "SFPoint running." and hotkeys work -> all good
-# Ctrl+C to quit
-```
-
-**If permissions dialog doesn't appear:** Sometimes macOS doesn't prompt. Go to System Settings manually, find your Terminal app in both Accessibility and Input Monitoring, and toggle it ON.
-
-### Step 8: First Run
-
-```bash
-# Foreground test (to verify everything works)
-cd ~/Developer/software/sfpoint
-source venv/bin/activate
-python3 main.py
-
-# You should see:
-# "SFPoint running."
-# A small toolbar pill at the bottom center of screen
-# Try Ctrl+A to activate arrow tool, draw on screen, Esc to deactivate
-# Ctrl+C to quit
-
-# Background run (after verification)
-source ~/.zshrc
-sfpoint
-```
-
-### Step 9: Verify All Features
-
-```
-Ctrl+A -> Arrow tool (draw arrow on screen, auto-fades in 3s)
-Ctrl+R -> Rectangle
-Ctrl+C -> Circle
-Ctrl+F -> Freehand drawing
-Ctrl+T -> Text (click to place cursor, type, Enter to commit)
-Ctrl+P -> Laser pointer (ambar dot follows cursor, click-through, morado ripple on click)
-Ctrl+H -> Hide/show toolbar
-Ctrl+S -> Settings panel (rebind shortcuts)
-Cmd+Z  -> Undo last annotation
-Cmd+Shift+Z -> Clear all annotations
-Esc    -> Deactivate current tool
-```
+**If permissions dialog doesn't appear:** Go to System Settings manually and toggle the app ON.
 
 ---
 
@@ -233,23 +89,24 @@ Esc    -> Deactivate current tool
 
 ```
 sfpoint/
-├── main.py              # Entry point, wires all signals with QueuedConnection
-├── config.py            # Colors, shortcuts, timing, persistence (settings.json)
+├── main.py              # Entry point — tray icon, launch-at-login, signal wiring
+├── config.py            # All configuration constants (UI, tools, paths, bundle detection)
+├── sfpoint.spec         # PyInstaller spec for building .app bundle
+├── build.sh             # One-shot build script (icns → PyInstaller → sign)
 ├── core/
-│   ├── hotkey.py        # Global hotkeys (pynput, toggle-based Ctrl+key)
+│   ├── hotkey.py        # Global hotkeys (pynput, toggle-based Option+key)
 │   └── drawing.py       # Shape engine (Annotation dataclass + ShapeRenderer)
 ├── ui/
 │   ├── canvas.py        # Fullscreen transparent overlay with click-through
 │   ├── toolbar.py       # Floating pill toolbar (current tool + color)
 │   └── settings.py      # Settings panel (rebindable shortcuts)
-├── logo.png             # SFPoint logo (used in README)
-├── logo_small.png       # Small logo (used in toolbar pill)
-├── settings.json        # Persisted custom shortcuts (auto-created, gitignored)
-├── start_sfpoint.sh     # Background launcher script
+├── logo.png             # SFPoint logo (full size, used for .icns generation)
+├── logo_small.png       # Small logo (22x22 for menu bar + toolbar pill)
+├── SFPoint.icns         # macOS app icon (generated from logo.png)
+├── requirements.txt     # PyQt6, pynput, pyobjc-framework-Cocoa, numpy
 ├── PRP.md               # Project Requirements Plan (build blueprint for AI)
 ├── CLAUDE.md            # This file
-├── README.md            # Public-facing documentation
-└── requirements.txt     # PyQt6, pynput, pyobjc-framework-Cocoa, numpy
+└── README.md            # Public-facing documentation
 ```
 
 ---
@@ -268,11 +125,24 @@ pynput keyboard and mouse listeners run on their own threads. ALL signals use ex
 ### 3. Floating Window (no focus steal)
 PyObjC `NSFloatingWindowLevel` + `NSWindowStyleMaskNonactivatingPanel` ensures overlay never steals focus. Canvas is at level `NSFloatingWindowLevel + 1`, toolbar at `NSFloatingWindowLevel`, settings at `NSFloatingWindowLevel + 2`.
 
-### 4. Background Execution
-macOS requires the Framework Python binary (not venv symlink) for background GUI processes. The alias uses explicit `PYTHONPATH` to the venv's site-packages + the Framework Python binary path, with `& disown` for detachment.
+### 4. Bundle vs Dev Mode (config.py)
+`config.py` detects `sys.frozen` to switch between dev and .app bundle:
+- **Dev mode**: assets and data live in the project root directory
+- **Bundle mode**: read-only assets (logo) come from `sys._MEIPASS`, writable data (settings.json) goes to `~/Library/Application Support/SFPoint/`
 
-### 5. Settings Persistence
-Custom shortcuts saved to `settings.json` via `config.load_shortcuts()` / `config.save_shortcuts()`. Settings panel (Ctrl+S) allows live rebinding with automatic conflict resolution. File is gitignored (user-specific).
+### 5. Desktop App Features (main.py)
+- **System Tray**: QSystemTrayIcon in menu bar with Settings, "Start with macOS" toggle, Quit
+- **Launch at Login**: Creates/removes a LaunchAgent plist in `~/Library/LaunchAgents/`
+- **Hide from Dock**: `NSApplicationActivationPolicyAccessory` via PyObjC (MUST be set AFTER all windows are shown)
+
+### 6. Settings Persistence
+Custom shortcuts saved to `settings.json` via `config.load_shortcuts()` / `config.save_shortcuts()`. Settings panel (Option+S) allows live rebinding with automatic conflict resolution. In bundle mode, settings go to `~/Library/Application Support/SFPoint/settings.json`.
+
+### 7. Building the .app (IMPORTANT)
+- Use `ditto` (not `cp -r`) to copy .app to /Applications — `cp -r` corrupts bundle metadata causing segfaults
+- The .icns is auto-generated from logo.png by build.sh if missing
+- Ad-hoc signing (`codesign --force --deep --sign -`) is sufficient for personal use
+- Remove quarantine after install: `xattr -cr /Applications/SFPoint.app`
 
 ---
 
@@ -292,12 +162,12 @@ Custom shortcuts saved to `settings.json` via `config.load_shortcuts()` / `confi
 
 | Problem | Solution |
 |---------|----------|
-| Tool doesn't activate | Grant Accessibility + Input Monitoring to your Terminal |
+| Tool doesn't activate | Grant Accessibility + Input Monitoring to SFPoint.app (or Terminal in dev mode) |
 | Overlay steals focus | Verify pyobjc-framework-Cocoa installed: `pip install pyobjc-framework-Cocoa` |
 | Font warning in console | Cosmetic — uses `.AppleSystemUIFont` (macOS system font) |
-| `sfpoint` alias not found | Run `source ~/.zshrc` after adding aliases |
 | Python version error | Requires 3.12+ — `brew install python@3.12` |
-| Background launch fails silently | Must use Framework Python binary, not venv symlink (see Step 6) |
 | Laser blocks clicks | Update to latest version — laser now uses click-through mode |
 | No ripple on click | pynput mouse listener needs Input Monitoring permission |
-| Permissions dialog never appears | Manually add Terminal to Accessibility + Input Monitoring in System Settings |
+| Permissions dialog never appears | Manually add SFPoint.app to Accessibility + Input Monitoring in System Settings |
+| .app crashes (segfault) | Was copied with `cp -r` instead of `ditto`. Reinstall with `ditto` |
+| .app blocked by macOS | Run `xattr -cr /Applications/SFPoint.app` to remove quarantine |

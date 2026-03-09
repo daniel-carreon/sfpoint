@@ -6,14 +6,44 @@ Option+T=text, Option+P=pointer, Option+H=hide toolbar, Option+S=settings.
 Esc=deactivate, Cmd+Z=undo, Cmd+Shift+Z=clear all.
 """
 
+import os
+import plistlib
 import signal
 import sys
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
+from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtCore import Qt
+from config import IS_BUNDLE, LOGO_PATH
 from core.hotkey import HotkeyListener
 from ui.canvas import CanvasWidget
 from ui.toolbar import ToolbarWidget
 from ui.settings import SettingsPanel
+
+# --- Launch Agent ---
+_BUNDLE_ID = "so.saasfactory.sfpoint"
+_LAUNCH_AGENT_PATH = os.path.expanduser(f"~/Library/LaunchAgents/{_BUNDLE_ID}.plist")
+
+
+def _is_launch_at_login() -> bool:
+    return os.path.exists(_LAUNCH_AGENT_PATH)
+
+
+def _set_launch_at_login(enabled: bool):
+    if enabled:
+        app_path = "/Applications/SFPoint.app" if IS_BUNDLE else ""
+        if not app_path or not os.path.exists(app_path):
+            return
+        plist = {
+            "Label": _BUNDLE_ID,
+            "ProgramArguments": ["open", "-a", app_path],
+            "RunAtLoad": True,
+        }
+        os.makedirs(os.path.dirname(_LAUNCH_AGENT_PATH), exist_ok=True)
+        with open(_LAUNCH_AGENT_PATH, "wb") as f:
+            plistlib.dump(plist, f)
+    else:
+        if os.path.exists(_LAUNCH_AGENT_PATH):
+            os.remove(_LAUNCH_AGENT_PATH)
 
 
 def main():
@@ -26,6 +56,30 @@ def main():
     toolbar = ToolbarWidget()
     settings = SettingsPanel()
     hotkey = HotkeyListener()
+
+    # --- System Tray (menu bar icon) ---
+    tray = QSystemTrayIcon()
+    tray_icon = QIcon(QPixmap(LOGO_PATH))
+    tray.setIcon(tray_icon)
+
+    tray_menu = QMenu()
+    settings_action = tray_menu.addAction("Settings")
+    settings_action.triggered.connect(settings.toggle)
+
+    tray_menu.addSeparator()
+
+    login_action = tray_menu.addAction("Start with macOS")
+    login_action.setCheckable(True)
+    login_action.setChecked(_is_launch_at_login())
+    login_action.triggered.connect(lambda checked: _set_launch_at_login(checked))
+
+    tray_menu.addSeparator()
+
+    quit_action = tray_menu.addAction("Quit SFPoint")
+    quit_action.triggered.connect(app.quit)
+
+    tray.setContextMenu(tray_menu)
+    tray.show()
 
     # --- Connect signals (all QueuedConnection for thread safety) ---
 
@@ -89,6 +143,14 @@ def main():
     toolbar.show()
 
     hotkey.start()
+
+    # --- Hide from Dock (menu bar only) ---
+    # MUST be set AFTER all windows are shown
+    try:
+        import AppKit
+        AppKit.NSApp.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
+    except Exception:
+        pass
 
     print("SFPoint running.")
     print("  \u2325A=arrow  \u2325R=rect  \u2325C=circle  \u2325F=freehand")

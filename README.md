@@ -26,14 +26,15 @@ Built as a replacement for [Presentify](https://presentify.compzets.com) ($6.99)
 
 ### Features
 
+- **Native macOS app** — lives in the menu bar, no terminal needed, starts with your Mac
 - **7 annotation tools** — arrow, rectangle, circle, freehand, text, laser pointer, highlighter
-- **Toggle-based shortcuts** — Ctrl+key to activate, same key or Esc to deactivate
+- **Toggle-based shortcuts** — Option+key to activate, same key or Esc to deactivate
 - **Auto-fade** — annotations disappear after 3 seconds (configurable)
 - **Laser pointer** — ambar Google Slides-style, click-through (doesn't block mouse), morado ripple on click
 - **No focus stealing** — overlay floats above everything without interrupting your work (native macOS APIs)
 - **Click-through** — laser always passes clicks through; other tools only capture when active
 - **Floating toolbar** — draggable pill showing current tool and color
-- **Rebindable shortcuts** — settings panel (Ctrl+S) to customize keybindings
+- **Rebindable shortcuts** — settings panel (Option+S) to customize keybindings
 - **Brand colors** — morado (#8B5CF6) + ambar (#F59E0B) from SaaS Factory
 
 ---
@@ -46,7 +47,7 @@ Built as a replacement for [Presentify](https://presentify.compzets.com) ($6.99)
 - Python 3.12+
 - [Homebrew](https://brew.sh)
 
-### Install
+### Install (Desktop App — Recommended)
 
 ```bash
 # Clone
@@ -54,24 +55,29 @@ git clone https://github.com/daniel-carreon/sfpoint.git
 cd sfpoint
 
 # Python environment
-python3.12 -m venv venv
+python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+
+# Build the .app
+bash build.sh
+
+# Install (IMPORTANT: use ditto, not cp -r)
+ditto dist/SFPoint.app /Applications/SFPoint.app
+xattr -cr /Applications/SFPoint.app
 ```
 
-### Run
+Open SFPoint from Spotlight or `/Applications`. It lives in the menu bar (no Dock icon).
+
+### Install (Dev Mode)
 
 ```bash
+git clone https://github.com/daniel-carreon/sfpoint.git
+cd sfpoint
+python3 -m venv venv
 source venv/bin/activate
+pip install -r requirements.txt
 python3 main.py
-```
-
-### Optional: Shell aliases
-
-Add to your `~/.zshrc`:
-```bash
-alias sfpoint='pkill -f "sfpoint/main.py" 2>/dev/null; sleep 0.5; PYTHONPATH=~/Developer/software/sfpoint/venv/lib/python3.12/site-packages /opt/homebrew/Cellar/python@3.12/3.12.13/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python ~/Developer/software/sfpoint/main.py &>/dev/null & disown; echo "SFPoint running"'
-alias sfpoint-off='pkill -f "sfpoint/main.py" 2>/dev/null; echo "SFPoint stopped"'
 ```
 
 ---
@@ -80,17 +86,19 @@ alias sfpoint-off='pkill -f "sfpoint/main.py" 2>/dev/null; echo "SFPoint stopped
 
 | Action | Shortcut |
 |--------|----------|
-| **Arrow** | `Ctrl+A` |
-| **Rectangle** | `Ctrl+R` |
-| **Circle** | `Ctrl+C` |
-| **Freehand** | `Ctrl+F` |
-| **Text** | `Ctrl+T` (type, Enter to place) |
-| **Laser pointer** | `Ctrl+P` (ambar glow trail) |
-| **Hide toolbar** | `Ctrl+H` |
-| **Settings** | `Ctrl+S` |
+| **Arrow** | `Option+A` |
+| **Rectangle** | `Option+R` |
+| **Circle** | `Option+C` |
+| **Freehand** | `Option+F` |
+| **Text** | `Option+T` (type, Enter to place) |
+| **Laser pointer** | `Option+P` (ambar glow trail) |
+| **Hide toolbar** | `Option+H` |
+| **Settings** | `Option+S` or menu bar |
+| **Start with macOS** | Toggle in menu bar |
 | **Undo** | `Cmd+Z` |
 | **Clear all** | `Cmd+Shift+Z` |
 | **Deactivate** | `Esc` or press same shortcut again |
+| **Quit** | Menu bar > "Quit SFPoint" |
 
 All tool shortcuts are **toggle-based**: press once to activate, press again (or Esc) to deactivate.
 
@@ -100,8 +108,8 @@ All tool shortcuts are **toggle-based**: press once to activate, press again (or
 
 SFPoint needs these permissions (System Settings > Privacy & Security):
 
-1. **Accessibility** — for global hotkeys and overlay interaction (add your Terminal app)
-2. **Input Monitoring** — for keyboard listener (add your Terminal app)
+1. **Accessibility** — for global hotkeys and overlay interaction (add SFPoint.app or your Terminal app)
+2. **Input Monitoring** — for keyboard listener (add SFPoint.app or your Terminal app)
 
 ---
 
@@ -184,11 +192,12 @@ Custom shortcuts are saved to `settings.json` via the settings panel (Ctrl+S).
 
 | Problem | Solution |
 |---------|----------|
-| Tool doesn't activate | Grant Accessibility + Input Monitoring to your Terminal |
+| Tool doesn't activate | Grant Accessibility + Input Monitoring to SFPoint.app (or Terminal in dev mode) |
 | Overlay steals focus | Verify pyobjc-framework-Cocoa: `pip install pyobjc-framework-Cocoa` |
 | Font warning in console | Cosmetic — uses system font `.AppleSystemUIFont` |
 | Python version error | Requires 3.12+ (`list[]` generics, `\|` union syntax) |
-| `sfpoint` alias not found | Run `source ~/.zshrc` after adding aliases |
+| .app crashes (segfault) | Reinstall with `ditto` (not `cp -r`): `ditto dist/SFPoint.app /Applications/SFPoint.app` |
+| .app blocked by macOS | Remove quarantine: `xattr -cr /Applications/SFPoint.app` |
 
 ---
 

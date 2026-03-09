@@ -1,6 +1,20 @@
 import os
+import sys
 import json
 from PyQt6.QtGui import QColor
+
+# --- Bundle vs Dev Mode ---
+IS_BUNDLE = getattr(sys, "frozen", False)
+
+if IS_BUNDLE:
+    # Read-only assets come from the PyInstaller temp dir
+    _ASSETS_DIR = sys._MEIPASS
+    # Writable data (settings.json) goes to ~/Library/Application Support/SFPoint/
+    APP_DATA_DIR = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "SFPoint")
+    os.makedirs(APP_DATA_DIR, exist_ok=True)
+else:
+    _ASSETS_DIR = os.path.dirname(__file__)
+    APP_DATA_DIR = os.path.dirname(__file__)
 
 # --- Brand Colors ---
 COLOR_MORADO = QColor(140, 39, 241)      # #8C27F1
@@ -75,7 +89,7 @@ TOOLBAR_MARGIN_BOTTOM = 14
 TOOLBAR_ICON_SIZE = 16
 
 # --- Logo ---
-LOGO_PATH = os.path.join(os.path.dirname(__file__), "logo_small.png")
+LOGO_PATH = os.path.join(_ASSETS_DIR, "logo_small.png")
 LOGO_SIZE = 22
 
 # --- Ripple (click effect on laser) ---
@@ -86,7 +100,7 @@ RIPPLE_DURATION = 0.55  # seconds
 HIGHLIGHTER_OPACITY = 0.35
 
 # --- Settings persistence ---
-SETTINGS_PATH = os.path.join(os.path.dirname(__file__), "settings.json")
+SETTINGS_PATH = os.path.join(APP_DATA_DIR, "settings.json")
 
 
 def load_shortcuts() -> dict:

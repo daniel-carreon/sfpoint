@@ -103,24 +103,27 @@ class CanvasWidget(QWidget):
             app.screenRemoved.connect(self._update_geometry)
 
     def _update_geometry(self, _screen=None):
-        screen = QApplication.primaryScreen()
-        if screen:
-            geo = screen.virtualGeometry()
-            self.setGeometry(geo)
+        # Build explicit union of ALL screen geometries (more reliable than virtualGeometry)
+        screens = QApplication.screens()
+        if screens:
+            from PyQt6.QtCore import QRect
+            union = screens[0].geometry()
+            for s in screens[1:]:
+                union = union.united(s.geometry())
+            self.setGeometry(union)
 
-        # Fade timer
-        self._fade_timer = QTimer()
-        self._fade_timer.setInterval(1000 // CANVAS_FPS)
-        self._fade_timer.timeout.connect(self._tick_fade)
-        self._fade_timer.start()
+        # Only create timers once (avoid duplication on screen add/remove)
+        if not hasattr(self, "_fade_timer"):
+            self._fade_timer = QTimer()
+            self._fade_timer.setInterval(1000 // CANVAS_FPS)
+            self._fade_timer.timeout.connect(self._tick_fade)
+            self._fade_timer.start()
 
-        # Text cursor blink
-        self._cursor_timer = QTimer()
-        self._cursor_timer.setInterval(530)
-        self._cursor_timer.timeout.connect(self._blink_cursor)
+            self._cursor_timer = QTimer()
+            self._cursor_timer.setInterval(530)
+            self._cursor_timer.timeout.connect(self._blink_cursor)
 
-        # Thread-safe ripple signal
-        self._ripple_signal.connect(self._add_ripple, Qt.ConnectionType.QueuedConnection)
+            self._ripple_signal.connect(self._add_ripple, Qt.ConnectionType.QueuedConnection)
 
     def _grab_focus(self):
         """Temporarily allow focus for text input."""
@@ -147,6 +150,8 @@ class CanvasWidget(QWidget):
             print(f"Warning: native macOS setup failed: {e}")
         # Start in click-through mode
         self._set_ignores_mouse(True)
+        # Re-apply geometry AFTER native setup to ensure multi-monitor coverage
+        self._update_geometry()
 
     def _setup_native_macos(self):
         ns_view = objc.objc_object(c_void_p=c_void_p(self.winId().__int__()))
@@ -164,6 +169,14 @@ class CanvasWidget(QWidget):
         ns_window.setBackgroundColor_(AppKit.NSColor.clearColor())
         ns_window.setOpaque_(False)
         ns_window.setHasShadow_(False)
+
+        # Build NSRect covering ALL physical screens (critical for multi-monitor)
+        all_screens = AppKit.NSScreen.screens()
+        if all_screens:
+            union = all_screens[0].frame()
+            for s in all_screens[1:]:
+                union = AppKit.NSUnionRect(union, s.frame())
+            ns_window.setFrame_display_(union, True)
 
     def _set_ignores_mouse(self, ignore: bool):
         try:

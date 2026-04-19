@@ -23,7 +23,8 @@ from config import (
     TOOL_LASER, TOOL_TEXT, TOOL_FREEHAND, TOOL_HIGHLIGHTER,
     LASER_TRAIL_LENGTH, DEFAULT_TOOL, DEFAULT_STROKE,
     COLOR_PALETTE, DEFAULT_COLOR_INDEX, STROKE_HIGHLIGHTER,
-    TEXT_FONT_SIZE, RIPPLE_DURATION,
+    TEXT_FONT_SIZE, RIPPLE_DURATION, LASER_COLOR,
+    COLOR_AMBAR, COLOR_MORADO,
 )
 
 # --- Core Graphics cursor control (system-wide) ---
@@ -170,14 +171,14 @@ class ScreenOverlay(QWidget):
 
         # Laser
         if mgr._laser_active:
-            ShapeRenderer.draw_laser(painter, mgr._laser_pos, mgr._laser_trail)
+            ShapeRenderer.draw_laser(painter, mgr._laser_pos, mgr._laser_trail, mgr._laser_color)
 
         # Ripples
         now = time.time()
         for ripple in mgr._ripples:
             progress = (now - ripple["start_time"]) / RIPPLE_DURATION
             if 0.0 <= progress < 1.0:
-                ShapeRenderer.draw_ripple(painter, ripple["pos"], progress)
+                ShapeRenderer.draw_ripple(painter, ripple["pos"], progress, ripple.get("color"))
 
         # Text cursor
         if mgr._text_mode and mgr._text_pos:
@@ -239,6 +240,7 @@ class CanvasManager(QObject):
         self._laser_active = False
         self._laser_pos: tuple | None = None
         self._laser_trail: list[tuple] = []
+        self._laser_color = LASER_COLOR  # current laser color (ambar or morado)
         self._mouse_listener: pynput_mouse.Listener | None = None
         self._cursor_hidden = False
 
@@ -339,6 +341,9 @@ class CanvasManager(QObject):
             if not self._active:
                 self._set_all_ignores_mouse(True)
         self._update_all()
+
+    def set_laser_color(self, color):
+        self._laser_color = color
 
     def set_active(self, active: bool):
         if active == self._active:
@@ -543,7 +548,12 @@ class CanvasManager(QObject):
             pass
 
     def _add_ripple(self, x: float, y: float):
-        self._ripples.append({"pos": (x, y), "start_time": time.time()})
+        # Ripple is always the OPPOSITE color of the active laser
+        if self._laser_color.red() == COLOR_AMBAR.red() and self._laser_color.green() == COLOR_AMBAR.green():
+            ripple_color = COLOR_MORADO
+        else:
+            ripple_color = COLOR_AMBAR
+        self._ripples.append({"pos": (x, y), "start_time": time.time(), "color": ripple_color})
 
     # --- fade ---
 

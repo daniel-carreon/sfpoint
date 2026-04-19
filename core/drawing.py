@@ -176,11 +176,12 @@ class ShapeRenderer:
         painter.drawPath(path)
 
     @staticmethod
-    def draw_laser(painter: QPainter, pos: tuple, trail: list):
+    def draw_laser(painter: QPainter, pos: tuple, trail: list, color=None):
         """Draw neon laser pointer with bloom glow and luminous trail."""
         painter.setPen(Qt.PenStyle.NoPen)
 
-        lr, lg, lb = LASER_COLOR.red(), LASER_COLOR.green(), LASER_COLOR.blue()
+        laser_color = color if color is not None else LASER_COLOR
+        lr, lg, lb = laser_color.red(), laser_color.green(), laser_color.blue()
 
         # Trail width matches dot diameter for a thick, bold laser trail
         # FlatCap with overlapping segments — short overlap hides flat ends
@@ -253,11 +254,12 @@ class ShapeRenderer:
         painter.drawRect(QRectF(px - full_r, py - full_r, full_r * 2, full_r * 2))
 
     @staticmethod
-    def draw_ripple(painter: QPainter, pos: tuple, progress: float):
-        """Draw bold expanding morado shockwave on click. progress: 0..1."""
+    def draw_ripple(painter: QPainter, pos: tuple, progress: float, color=None):
+        """Draw bold expanding shockwave on click. progress: 0..1."""
         if not pos or progress >= 1.0:
             return
-        mr, mg, mb = COLOR_MORADO.red(), COLOR_MORADO.green(), COLOR_MORADO.blue()
+        ripple_color = color if color is not None else COLOR_MORADO
+        mr, mg, mb = ripple_color.red(), ripple_color.green(), ripple_color.blue()
         px, py = pos
         center = QPointF(px, py)
 

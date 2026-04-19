@@ -13,7 +13,7 @@ import sys
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtCore import Qt
-from config import IS_BUNDLE, LOGO_PATH
+from config import IS_BUNDLE, LOGO_PATH, LASER_STATE_OFF, LASER_STATE_AMBAR, LASER_STATE_MORADO, LASER_COLORS
 from core.hotkey import HotkeyListener
 from ui.canvas import CanvasManager
 from ui.toolbar import ToolbarWidget
@@ -102,7 +102,7 @@ def main():
         Qt.ConnectionType.QueuedConnection,
     )
     hotkey.laser_toggled.connect(
-        lambda on: _on_laser_toggled(canvas, toolbar, on),
+        lambda state: _on_laser_toggled(canvas, toolbar, state),
         Qt.ConnectionType.QueuedConnection,
     )
     hotkey.hide_toolbar.connect(
@@ -188,28 +188,38 @@ def _on_deactivated(canvas: CanvasManager, toolbar: ToolbarWidget):
     toolbar.set_active(False)
 
 
-def _on_laser_toggled(canvas: CanvasManager, toolbar: ToolbarWidget, on: bool):
-    canvas.set_laser(on)
-    if on:
-        toolbar.update_tool("laser")
+def _on_laser_toggled(canvas: CanvasManager, toolbar: ToolbarWidget, state: int):
+    if state == LASER_STATE_OFF:
+        canvas.set_laser(False)
+        if not canvas.is_active:
+            toolbar.set_active(False)
+    else:
+        color = LASER_COLORS[state]
+        canvas.set_laser_color(color)
+        canvas.set_laser(True)
+        label = "laser" if state == LASER_STATE_AMBAR else "laser-morado"
+        toolbar.update_tool(label)
         toolbar.set_active(True)
-    elif not canvas.is_active:
-        toolbar.set_active(False)
 
 
 def _on_context_tool(canvas: CanvasManager, toolbar: ToolbarWidget, hotkey, tool: str):
     from config import TOOL_LASER
     if tool == TOOL_LASER:
-        # Toggle laser
-        new_state = not canvas.is_laser_active
-        canvas.set_laser(new_state)
-        if new_state:
-            toolbar.update_tool("laser")
+        # Cycle laser state via context menu: off → ambar → morado → off
+        hotkey._laser_state = (hotkey._laser_state % 3) + 1
+        if hotkey._laser_state > LASER_STATE_MORADO:
+            hotkey._laser_state = LASER_STATE_OFF
+        if hotkey._laser_state == LASER_STATE_OFF:
+            canvas.set_laser(False)
+            if not canvas.is_active:
+                toolbar.set_active(False)
+        else:
+            color = LASER_COLORS[hotkey._laser_state]
+            canvas.set_laser_color(color)
+            canvas.set_laser(True)
+            label = "laser" if hotkey._laser_state == LASER_STATE_AMBAR else "laser-morado"
+            toolbar.update_tool(label)
             toolbar.set_active(True)
-        elif not canvas.is_active:
-            toolbar.set_active(False)
-        # Sync hotkey internal state
-        hotkey._laser_on = new_state
     else:
         # If clicking the already-active tool, deactivate
         if canvas.is_active and canvas.current_tool == tool:

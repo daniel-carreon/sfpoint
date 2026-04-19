@@ -67,11 +67,18 @@ FADE_DELAY = 3.0        # seconds before fade starts
 FADE_DURATION = 0.5      # seconds for fade animation
 CANVAS_FPS = 60          # repaint rate
 
-# --- Laser (ambar, neon bloom — Google Slides-inspired size) ---
+# --- Laser (neon bloom — Google Slides-inspired size) ---
 LASER_DOT_RADIUS = 7.5
 LASER_GLOW_RADIUS = 21.0
 LASER_TRAIL_LENGTH = 18  # short, clean trail
-LASER_COLOR = COLOR_AMBAR  # ambar pointer
+LASER_COLOR = COLOR_AMBAR  # ambar pointer (default)
+LASER_COLOR_MORADO = COLOR_MORADO  # morado pointer (alt)
+
+# Laser states: 0=off, 1=ambar, 2=morado (cycles on Ctrl+P presses)
+LASER_STATE_OFF = 0
+LASER_STATE_AMBAR = 1
+LASER_STATE_MORADO = 2
+LASER_COLORS = {LASER_STATE_AMBAR: COLOR_AMBAR, LASER_STATE_MORADO: COLOR_MORADO}
 
 # --- Arrow Head ---
 ARROW_HEAD_LENGTH = 14.0

@@ -16,10 +16,11 @@ from config import (
     COLOR_PALETTE, DEFAULT_COLOR_INDEX, DEFAULT_TOOL,
     TOOL_ARROW, TOOL_RECT, TOOL_CIRCLE, TOOL_FREEHAND,
     TOOL_TEXT, TOOL_LASER, TOOL_HIGHLIGHTER,
-    LASER_COLOR,
+    LASER_COLOR, LASER_COLOR_MORADO, COLOR_MORADO,
     STROKE_THIN, STROKE_MEDIUM, STROKE_THICK, STROKE_EXTRA, STROKE_HEAVY,
 )
 
+LASER_MORADO_KEY = "laser-morado"
 
 TOOL_LABELS = {
     TOOL_ARROW: "Arrow",
@@ -28,6 +29,7 @@ TOOL_LABELS = {
     TOOL_FREEHAND: "Draw",
     TOOL_TEXT: "Text",
     TOOL_LASER: "Pointer",
+    LASER_MORADO_KEY: "Pointer",
     TOOL_HIGHLIGHTER: "Highlight",
 }
 
@@ -38,6 +40,7 @@ TOOL_SHORTCUT_LABELS = {
     TOOL_FREEHAND: "\u2325F",
     TOOL_TEXT: "\u2325T",
     TOOL_LASER: "\u2325P",
+    LASER_MORADO_KEY: "\u2325P",
     TOOL_HIGHLIGHTER: "",
 }
 
@@ -214,11 +217,12 @@ class ToolbarWidget(QWidget):
         icon_cx = x_cursor + TOOLBAR_ICON_SIZE / 2
         icon_cy = h / 2.0
         color = QColor(COLOR_PALETTE[self._color_index])
-        if self._tool == TOOL_LASER:
-            color = QColor(LASER_COLOR)
+        if self._tool in (TOOL_LASER, LASER_MORADO_KEY):
+            color = QColor(LASER_COLOR_MORADO) if self._tool == LASER_MORADO_KEY else QColor(LASER_COLOR)
         if not self._active:
             color.setAlpha(100)
-        self._draw_tool_icon(painter, self._tool, icon_cx, icon_cy, color)
+        draw_tool = TOOL_LASER if self._tool == LASER_MORADO_KEY else self._tool
+        self._draw_tool_icon(painter, draw_tool, icon_cx, icon_cy, color)
         x_cursor += TOOLBAR_ICON_SIZE + 6
 
         # Tool label + shortcut
@@ -242,7 +246,12 @@ class ToolbarWidget(QWidget):
         dot_r = 5.0
         dot_cx = w - 16.0
         dot_cy = h / 2.0
-        dot_color = QColor(LASER_COLOR) if self._tool == TOOL_LASER else QColor(COLOR_PALETTE[self._color_index])
+        if self._tool == LASER_MORADO_KEY:
+            dot_color = QColor(LASER_COLOR_MORADO)
+        elif self._tool == TOOL_LASER:
+            dot_color = QColor(LASER_COLOR)
+        else:
+            dot_color = QColor(COLOR_PALETTE[self._color_index])
         painter.setBrush(dot_color)
         painter.drawEllipse(QPointF(dot_cx, dot_cy), dot_r, dot_r)
 

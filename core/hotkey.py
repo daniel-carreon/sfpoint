@@ -10,7 +10,10 @@ Uses pynput with Qt signals (QueuedConnection required).
 
 from pynput import keyboard
 from PyQt6.QtCore import QObject, pyqtSignal
-from config import TOOL_SHORTCUTS, TOOL_LASER, SHORTCUT_HIDE_TOOLBAR, SHORTCUT_SETTINGS
+from config import (
+    TOOL_SHORTCUTS, TOOL_LASER, SHORTCUT_HIDE_TOOLBAR, SHORTCUT_SETTINGS,
+    LASER_STATE_OFF, LASER_STATE_AMBAR, LASER_STATE_MORADO,
+)
 
 
 class HotkeyListener(QObject):
@@ -27,7 +30,7 @@ class HotkeyListener(QObject):
 
     tool_toggled = pyqtSignal(str)
     deactivated = pyqtSignal()
-    laser_toggled = pyqtSignal(bool)  # independent laser on/off
+    laser_toggled = pyqtSignal(int)  # laser state: 0=off, 1=ambar, 2=morado
     hide_toolbar = pyqtSignal()
     open_settings = pyqtSignal()
     undo_requested = pyqtSignal()
@@ -39,7 +42,7 @@ class HotkeyListener(QObject):
         self._cmd_held = False
         self._shift_held = False
         self._active_tool: str | None = None
-        self._laser_on = False
+        self._laser_state = LASER_STATE_OFF  # cycles: off → ambar → morado → off
         self._shortcuts = dict(TOOL_SHORTCUTS)
         self._listener: keyboard.Listener | None = None
 
@@ -129,8 +132,11 @@ class HotkeyListener(QObject):
         if char_lower in self._shortcuts:
             tool = self._shortcuts[char_lower]
             if tool == TOOL_LASER:
-                self._laser_on = not self._laser_on
-                self.laser_toggled.emit(self._laser_on)
+                # Cycle: off(0) → ambar(1) → morado(2) → off(0)
+                self._laser_state = (self._laser_state % 3) + 1
+                if self._laser_state > LASER_STATE_MORADO:
+                    self._laser_state = LASER_STATE_OFF
+                self.laser_toggled.emit(self._laser_state)
             elif self._active_tool == tool:
                 self._active_tool = None
                 self.deactivated.emit()

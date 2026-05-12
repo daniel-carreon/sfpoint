@@ -1,8 +1,8 @@
 """SFPoint — Screen Annotation Tool.
 
-Option+key toggles annotation tools on/off.
-Option+A=arrow, Option+R=rect, Option+C=circle, Option+F=freehand,
-Option+T=text, Option+P=pointer, Option+H=hide toolbar, Option+S=settings.
+Ctrl+key toggles annotation tools on/off.
+Ctrl+A=arrow, Ctrl+R=rect, Ctrl+C=circle, Ctrl+F=freehand,
+Ctrl+T=text, Ctrl+P=pointer, Ctrl+H=hide toolbar, Ctrl+S=settings.
 Esc=deactivate, Cmd+Z=undo, Cmd+Shift+Z=clear all.
 """
 
@@ -27,6 +27,43 @@ def _ensure_accessibility() -> bool:
         return AXIsProcessTrustedWithOptions({"AXTrustedCheckOptionPrompt": True})
     except Exception:
         return True
+
+
+def _ensure_input_monitoring() -> bool:
+    """Check Input Monitoring and show clear manual instructions if missing."""
+    try:
+        import ctypes, ctypes.util
+        iohid = ctypes.cdll.LoadLibrary(ctypes.util.find_library("IOKit"))
+        iohid.IOHIDCheckAccess.restype = ctypes.c_int  # 0=denied, 1=granted, 2=not-determined
+        iohid.IOHIDCheckAccess.argtypes = [ctypes.c_uint32]
+        kListen = ctypes.c_uint32(1)
+        status = iohid.IOHIDCheckAccess(kListen)
+        if status == 1:
+            return True
+    except Exception:
+        return True
+
+    import AppKit, subprocess
+    alert = AppKit.NSAlert.alloc().init()
+    alert.setMessageText_("Input Monitoring Required")
+    alert.setInformativeText_(
+        "SFPoint needs Input Monitoring to detect keyboard shortcuts.\n\n"
+        "To add it manually:\n"
+        "1. Click \"Open System Settings\" below\n"
+        "2. Click the \"+\" button\n"
+        "3. Navigate to /Applications and select SFPoint\n"
+        "4. Enable the toggle next to SFPoint\n"
+        "5. Relaunch SFPoint"
+    )
+    alert.addButtonWithTitle_("Open System Settings")
+    alert.addButtonWithTitle_("Continue Anyway")
+    response = alert.runModal()
+    if response == AppKit.NSAlertFirstButtonReturn:
+        subprocess.run([
+            "open",
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
+        ])
+    return False
 
 
 # --- Launch Agent ---
@@ -142,6 +179,12 @@ def main():
     toolbar.clear_requested.connect(canvas.clear_all)
     toolbar.settings_requested.connect(settings.toggle)
     toolbar.quit_requested.connect(app.quit)
+    toolbar.deactivate_requested.connect(
+        lambda: _on_deactivated(canvas, toolbar, hotkey),
+    )
+    toolbar.arrow_mode_toggled.connect(
+        lambda tip_first: _on_arrow_mode(canvas, toolbar, tip_first),
+    )
 
     # Right-click anywhere on canvas opens toolbar's context menu
     canvas.context_menu_requested.connect(
@@ -152,8 +195,9 @@ def main():
     canvas.show()
     toolbar.show()
 
-    # Request Accessibility permission (shows macOS prompt if not granted)
+    # Request permissions (shows macOS prompts if not granted)
     _ensure_accessibility()
+    _ensure_input_monitoring()
 
     hotkey.start()
 
@@ -166,9 +210,9 @@ def main():
         pass
 
     print("SFPoint running.")
-    print("  \u2325A=arrow  \u2325R=rect  \u2325C=circle  \u2325F=freehand")
-    print("  \u2325T=text   \u2325P=pointer")
-    print("  \u2325H=hide toolbar  \u2325S=settings")
+    print("  ^A=arrow  ^R=rect  ^C=circle  ^F=freehand")
+    print("  ^T=text   ^P=pointer")
+    print("  ^H=hide toolbar  ^S=settings")
     print("  \u2318Z=undo  \u2318\u21e7Z=clear  Esc=deactivate  Right-click=menu")
 
     exit_code = app.exec()
@@ -183,9 +227,11 @@ def _on_tool_toggled(canvas: CanvasManager, toolbar: ToolbarWidget, tool: str):
     toolbar.set_active(True)
 
 
-def _on_deactivated(canvas: CanvasManager, toolbar: ToolbarWidget):
+def _on_deactivated(canvas: CanvasManager, toolbar: ToolbarWidget, hotkey=None):
     canvas.set_active(False)
     toolbar.set_active(False)
+    if hotkey is not None:
+        hotkey._active_tool = None
 
 
 def _on_laser_toggled(canvas: CanvasManager, toolbar: ToolbarWidget, state: int):
@@ -232,6 +278,11 @@ def _on_context_tool(canvas: CanvasManager, toolbar: ToolbarWidget, hotkey, tool
             toolbar.update_tool(tool)
             toolbar.set_active(True)
             hotkey._active_tool = tool
+
+
+def _on_arrow_mode(canvas: CanvasManager, toolbar: ToolbarWidget, tip_first: bool):
+    canvas.set_arrow_tip_first(tip_first)
+    toolbar.set_arrow_tip_first(tip_first)
 
 
 def _on_context_color(canvas: CanvasManager, toolbar: ToolbarWidget, idx: int):

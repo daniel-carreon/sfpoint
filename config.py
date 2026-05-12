@@ -22,9 +22,10 @@ COLOR_AMBAR = QColor(245, 158, 11)       # #F59E0B
 COLOR_RED = QColor(239, 68, 68)          # #EF4444
 COLOR_GREEN = QColor(34, 197, 94)        # #22C55E
 COLOR_WHITE = QColor(255, 255, 255)      # #FFFFFF
+COLOR_CUSTOM = QColor(14, 165, 233)      # #0EA5E9 sky blue (user-replaceable)
 
-# Ordered palette — keys 1-5
-COLOR_PALETTE = [COLOR_MORADO, COLOR_AMBAR, COLOR_RED, COLOR_GREEN, COLOR_WHITE]
+# Ordered palette — indices 0-4 are presets, 5 is custom (mutable)
+COLOR_PALETTE = [COLOR_MORADO, COLOR_AMBAR, COLOR_RED, COLOR_GREEN, COLOR_WHITE, COLOR_CUSTOM]
 DEFAULT_COLOR_INDEX = 0  # morado (annotations default)
 
 # --- Tools ---
@@ -43,7 +44,8 @@ TOOL_SHORTCUTS = {
     "c": TOOL_CIRCLE,
     "f": TOOL_FREEHAND,
     "t": TOOL_TEXT,
-    "p": TOOL_LASER,       # Ctrl+P = pointer/laser
+    "p": TOOL_LASER,
+    "i": TOOL_HIGHLIGHTER,
 }
 
 # Special shortcuts (not tools)
@@ -65,6 +67,7 @@ STROKE_STEPS = [STROKE_THIN, STROKE_MEDIUM, STROKE_THICK, STROKE_EXTRA, STROKE_H
 # --- Fade ---
 FADE_DELAY = 3.0        # seconds before fade starts
 FADE_DURATION = 0.5      # seconds for fade animation
+IDLE_HIDE_MS = 500       # ms after deactivation before overlays hide from screenshot picker
 CANVAS_FPS = 60          # repaint rate
 
 # --- Laser (neon bloom — Google Slides-inspired size) ---

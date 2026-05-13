@@ -1,9 +1,9 @@
 """Global hotkey listener for screen annotation.
 
-Toggle-based: Option+key toggles tools on/off.
-Option+A=arrow, Option+R=rect, Option+C=circle, Option+F=freehand,
-Option+T=text, Option+P=laser pointer, Option+H=hide toolbar,
-Option+S=settings, Esc=deactivate.
+Toggle-based: Ctrl+key toggles tools on/off.
+Ctrl+A=arrow, Ctrl+R=rect, Ctrl+C=circle, Ctrl+F=freehand,
+Ctrl+T=text, Ctrl+P=laser pointer, Ctrl+H=hide toolbar,
+Ctrl+S=settings, Esc=deactivate.
 
 Uses pynput with Qt signals (QueuedConnection required).
 """
@@ -38,7 +38,7 @@ class HotkeyListener(QObject):
 
     def __init__(self):
         super().__init__()
-        self._option_held = False
+        self._ctrl_held = False
         self._cmd_held = False
         self._shift_held = False
         self._active_tool: str | None = None
@@ -64,8 +64,8 @@ class HotkeyListener(QObject):
 
     def _on_press(self, key):
         # Track modifiers
-        if key in (keyboard.Key.alt_l, keyboard.Key.alt_r, keyboard.Key.alt):
-            self._option_held = True
+        if key in (keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
+            self._ctrl_held = True
         if key in (keyboard.Key.cmd, keyboard.Key.cmd_l, keyboard.Key.cmd_r):
             self._cmd_held = True
         if key in (keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r):
@@ -85,9 +85,9 @@ class HotkeyListener(QObject):
         except AttributeError:
             pass
 
-        # On macOS, Option+key produces unicode chars (å, ®, ©, etc.)
+        # On macOS, Ctrl+key produces control characters (\x01, \x02, etc.)
         # Use vk (virtual key code) to get the original letter
-        if self._option_held and hasattr(key, 'vk') and key.vk is not None:
+        if self._ctrl_held and hasattr(key, 'vk') and key.vk is not None:
             vk = key.vk
             # macOS virtual key codes for letters
             vk_map = {
@@ -105,8 +105,8 @@ class HotkeyListener(QObject):
 
         char_lower = char.lower()
 
-        # Cmd+Z / Cmd+Shift+Z (undo/clear) — no Option required
-        if self._cmd_held and not self._option_held:
+        # Cmd+Z / Cmd+Shift+Z (undo/clear) — no Ctrl required
+        if self._cmd_held and not self._ctrl_held:
             if char_lower == "z":
                 if self._shift_held:
                     self.clear_requested.emit()
@@ -114,16 +114,16 @@ class HotkeyListener(QObject):
                     self.undo_requested.emit()
                 return
 
-        # Option+key shortcuts (toggle-based)
-        if not self._option_held:
+        # Ctrl+key shortcuts (toggle-based)
+        if not self._ctrl_held:
             return
 
-        # Option+H = hide/show toolbar
+        # Ctrl+H = hide/show toolbar
         if char_lower == SHORTCUT_HIDE_TOOLBAR:
             self.hide_toolbar.emit()
             return
 
-        # Option+S = settings
+        # Ctrl+S = settings
         if char_lower == SHORTCUT_SETTINGS:
             self.open_settings.emit()
             return
@@ -146,8 +146,8 @@ class HotkeyListener(QObject):
             return
 
     def _on_release(self, key):
-        if key in (keyboard.Key.alt_l, keyboard.Key.alt_r, keyboard.Key.alt):
-            self._option_held = False
+        if key in (keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
+            self._ctrl_held = False
         if key in (keyboard.Key.cmd, keyboard.Key.cmd_l, keyboard.Key.cmd_r):
             self._cmd_held = False
         if key in (keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r):

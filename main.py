@@ -1,8 +1,8 @@
 """SFPoint — Screen Annotation Tool.
 
-Option+key toggles annotation tools on/off.
-Option+A=arrow, Option+R=rect, Option+C=circle, Option+F=freehand,
-Option+T=text, Option+P=pointer, Option+H=hide toolbar, Option+S=settings.
+Ctrl+key toggles annotation tools on/off.
+Ctrl+A=arrow, Ctrl+R=rect, Ctrl+C=circle, Ctrl+F=freehand,
+Ctrl+T=text, Ctrl+P=pointer, Ctrl+H=hide toolbar, Ctrl+S=settings.
 Esc=deactivate, Cmd+Z=undo, Cmd+Shift+Z=clear all.
 """
 
@@ -13,7 +13,7 @@ import sys
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtCore import Qt
-from config import IS_BUNDLE, LOGO_PATH, LASER_STATE_OFF, LASER_STATE_AMBAR, LASER_STATE_MORADO, LASER_COLORS
+from config import IS_BUNDLE, LOGO_PATH, LASER_STATE_OFF, LASER_STATE_AMBAR, LASER_STATE_MORADO, LASER_COLORS, load_prefs, save_prefs, COLOR_PALETTE
 from core.hotkey import HotkeyListener
 from ui.canvas import CanvasManager
 from ui.toolbar import ToolbarWidget
@@ -21,12 +21,108 @@ from ui.settings import SettingsPanel
 
 
 def _ensure_accessibility() -> bool:
-    """Prompt macOS to grant Accessibility if not trusted. Returns True if already trusted."""
+    """Check Accessibility trust, prompting once on first launch."""
+    import os as _os, json as _json
+    settings_path = _os.path.expanduser("~/Library/Application Support/SFPoint/settings.json")
+
     try:
         from ApplicationServices import AXIsProcessTrustedWithOptions
-        return AXIsProcessTrustedWithOptions({"AXTrustedCheckOptionPrompt": True})
+        # Always call with prompt=False to activate the session — required for
+        # pynput to receive events even when permission is already granted.
+        trusted = AXIsProcessTrustedWithOptions({"AXTrustedCheckOptionPrompt": False})
+        if trusted:
+            return True
     except Exception:
         return True
+
+    # Not trusted yet — prompt once, then stop asking.
+    data = {}
+    if _os.path.exists(settings_path):
+        try:
+            with open(settings_path) as f:
+                data = _json.load(f)
+        except Exception:
+            pass
+
+    if not data.get("accessibility_prompted"):
+        try:
+            from ApplicationServices import AXIsProcessTrustedWithOptions
+            AXIsProcessTrustedWithOptions({"AXTrustedCheckOptionPrompt": True})
+        except Exception:
+            pass
+        data["accessibility_prompted"] = True
+        try:
+            _os.makedirs(_os.path.dirname(settings_path), exist_ok=True)
+            with open(settings_path, "w") as f:
+                _json.dump(data, f, indent=2)
+        except Exception:
+            pass
+    return False
+
+
+def _ensure_input_monitoring() -> bool:
+    """Check Input Monitoring, prompting once on first launch."""
+    import os as _os, json as _json
+    settings_path = _os.path.expanduser("~/Library/Application Support/SFPoint/settings.json")
+
+    try:
+        from Quartz import (
+            CGEventTapCreate, kCGSessionEventTap, kCGHeadInsertEventTap,
+            kCGEventTapOptionListenOnly, CGEventMaskBit, kCGEventKeyDown,
+        )
+        # Always attempt the tap — activates the Input Monitoring session for
+        # this process, which pynput's internal CGEventTap depends on.
+        tap = CGEventTapCreate(
+            kCGSessionEventTap, kCGHeadInsertEventTap,
+            kCGEventTapOptionListenOnly, CGEventMaskBit(kCGEventKeyDown),
+            lambda proxy, type_, event, refcon: event, None,
+        )
+        if tap is not None:
+            return True
+    except Exception:
+        return True
+
+    # Tap failed — permission not granted. Alert once, then stop asking.
+    data = {}
+    if _os.path.exists(settings_path):
+        try:
+            with open(settings_path) as f:
+                data = _json.load(f)
+        except Exception:
+            pass
+
+    if data.get("input_monitoring_prompted"):
+        return False
+
+    import AppKit, subprocess
+    alert = AppKit.NSAlert.alloc().init()
+    alert.setMessageText_("Input Monitoring Required")
+    alert.setInformativeText_(
+        "SFPoint needs Input Monitoring to detect keyboard shortcuts.\n\n"
+        "To enable it:\n"
+        "1. Click \"Open System Settings\" below\n"
+        "2. Click the \"+\" button\n"
+        "3. Navigate to /Applications and select SFPoint\n"
+        "4. Enable the toggle next to SFPoint\n"
+        "5. Relaunch SFPoint"
+    )
+    alert.addButtonWithTitle_("Open System Settings")
+    alert.addButtonWithTitle_("Done")
+    response = alert.runModal()
+    if response == AppKit.NSAlertFirstButtonReturn:
+        subprocess.run([
+            "open",
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
+        ])
+
+    data["input_monitoring_prompted"] = True
+    try:
+        _os.makedirs(_os.path.dirname(settings_path), exist_ok=True)
+        with open(settings_path, "w") as f:
+            _json.dump(data, f, indent=2)
+    except Exception:
+        pass
+    return False
 
 
 # --- Launch Agent ---
@@ -66,6 +162,18 @@ def main():
     toolbar = ToolbarWidget()
     settings = SettingsPanel()
     hotkey = HotkeyListener()
+
+    # --- Restore persisted prefs ---
+    prefs = load_prefs()
+    if prefs["custom_color"]:
+        from PyQt6.QtGui import QColor as _QColor
+        COLOR_PALETTE[5] = _QColor(prefs["custom_color"])
+    canvas.set_color_index(prefs["color_index"])
+    canvas.set_stroke_width(prefs["stroke_width"])
+    canvas.set_arrow_tip_first(prefs["arrow_tip_first"])
+    toolbar.update_color(prefs["color_index"])
+    toolbar.update_stroke(prefs["stroke_width"])
+    toolbar.set_arrow_tip_first(prefs["arrow_tip_first"])
 
     # --- System Tray (menu bar icon) ---
     tray = QSystemTrayIcon()
@@ -142,6 +250,12 @@ def main():
     toolbar.clear_requested.connect(canvas.clear_all)
     toolbar.settings_requested.connect(settings.toggle)
     toolbar.quit_requested.connect(app.quit)
+    toolbar.deactivate_requested.connect(
+        lambda: _on_deactivated(canvas, toolbar, hotkey),
+    )
+    toolbar.arrow_mode_toggled.connect(
+        lambda tip_first: _on_arrow_mode(canvas, toolbar, tip_first),
+    )
 
     # Right-click anywhere on canvas opens toolbar's context menu
     canvas.context_menu_requested.connect(
@@ -152,8 +266,9 @@ def main():
     canvas.show()
     toolbar.show()
 
-    # Request Accessibility permission (shows macOS prompt if not granted)
+    # Request permissions (shows macOS prompts if not granted)
     _ensure_accessibility()
+    _ensure_input_monitoring()
 
     hotkey.start()
 
@@ -166,9 +281,9 @@ def main():
         pass
 
     print("SFPoint running.")
-    print("  \u2325A=arrow  \u2325R=rect  \u2325C=circle  \u2325F=freehand")
-    print("  \u2325T=text   \u2325P=pointer")
-    print("  \u2325H=hide toolbar  \u2325S=settings")
+    print("  ^A=arrow  ^R=rect  ^C=circle  ^F=freehand")
+    print("  ^T=text   ^P=pointer")
+    print("  ^H=hide toolbar  ^S=settings")
     print("  \u2318Z=undo  \u2318\u21e7Z=clear  Esc=deactivate  Right-click=menu")
 
     exit_code = app.exec()
@@ -183,9 +298,11 @@ def _on_tool_toggled(canvas: CanvasManager, toolbar: ToolbarWidget, tool: str):
     toolbar.set_active(True)
 
 
-def _on_deactivated(canvas: CanvasManager, toolbar: ToolbarWidget):
+def _on_deactivated(canvas: CanvasManager, toolbar: ToolbarWidget, hotkey=None):
     canvas.set_active(False)
     toolbar.set_active(False)
+    if hotkey is not None:
+        hotkey._active_tool = None
 
 
 def _on_laser_toggled(canvas: CanvasManager, toolbar: ToolbarWidget, state: int):
@@ -234,14 +351,32 @@ def _on_context_tool(canvas: CanvasManager, toolbar: ToolbarWidget, hotkey, tool
             hotkey._active_tool = tool
 
 
+def _save_prefs(canvas: CanvasManager):
+    custom_hex = COLOR_PALETTE[5].name() if len(COLOR_PALETTE) > 5 else None
+    save_prefs(
+        color_index=canvas.current_color_index,
+        stroke_width=canvas._stroke_width,
+        arrow_tip_first=canvas._arrow_tip_first,
+        custom_color_hex=custom_hex,
+    )
+
+
+def _on_arrow_mode(canvas: CanvasManager, toolbar: ToolbarWidget, tip_first: bool):
+    canvas.set_arrow_tip_first(tip_first)
+    toolbar.set_arrow_tip_first(tip_first)
+    _save_prefs(canvas)
+
+
 def _on_context_color(canvas: CanvasManager, toolbar: ToolbarWidget, idx: int):
     canvas.set_color_index(idx)
     toolbar.update_color(idx)
+    _save_prefs(canvas)
 
 
 def _on_context_stroke(canvas: CanvasManager, toolbar: ToolbarWidget, width: float):
     canvas.set_stroke_width(width)
     toolbar.update_stroke(width)
+    _save_prefs(canvas)
 
 
 if __name__ == "__main__":

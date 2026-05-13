@@ -113,20 +113,54 @@ HIGHLIGHTER_OPACITY = 0.35
 SETTINGS_PATH = os.path.join(APP_DATA_DIR, "settings.json")
 
 
-def load_shortcuts() -> dict:
-    """Load custom shortcuts from settings.json, fallback to defaults."""
+def _read_settings() -> dict:
     if os.path.exists(SETTINGS_PATH):
         try:
             with open(SETTINGS_PATH) as f:
-                data = json.load(f)
-            return data.get("shortcuts", dict(TOOL_SHORTCUTS))
+                return json.load(f)
         except Exception:
             pass
-    return dict(TOOL_SHORTCUTS)
+    return {}
+
+
+def _write_settings(data: dict):
+    os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
+    with open(SETTINGS_PATH, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def load_shortcuts() -> dict:
+    saved = _read_settings().get("shortcuts", {})
+    # Drop any non-ASCII keys left over from the old Option-modifier era (e.g. "å")
+    saved = {k: v for k, v in saved.items() if k.isascii() and k.isalpha()}
+    merged = dict(TOOL_SHORTCUTS)
+    merged.update(saved)
+    return merged
 
 
 def save_shortcuts(shortcuts: dict):
-    """Save custom shortcuts to settings.json."""
-    data = {"shortcuts": shortcuts}
-    with open(SETTINGS_PATH, "w") as f:
-        json.dump(data, f, indent=2)
+    data = _read_settings()
+    data["shortcuts"] = shortcuts
+    _write_settings(data)
+
+
+def load_prefs() -> dict:
+    """Load persistent UI prefs: color_index, stroke_width, arrow_tip_first, custom_color."""
+    data = _read_settings().get("prefs", {})
+    return {
+        "color_index": data.get("color_index", DEFAULT_COLOR_INDEX),
+        "stroke_width": data.get("stroke_width", DEFAULT_STROKE),
+        "arrow_tip_first": data.get("arrow_tip_first", False),
+        "custom_color": data.get("custom_color", None),  # hex string or None
+    }
+
+
+def save_prefs(color_index: int, stroke_width: float, arrow_tip_first: bool, custom_color_hex: str | None):
+    data = _read_settings()
+    data["prefs"] = {
+        "color_index": color_index,
+        "stroke_width": stroke_width,
+        "arrow_tip_first": arrow_tip_first,
+        "custom_color": custom_color_hex,
+    }
+    _write_settings(data)

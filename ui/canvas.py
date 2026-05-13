@@ -580,6 +580,7 @@ class CanvasManager(QObject):
 
     def _finish_current(self):
         if self._current and len(self._current.points) >= 2:
+            self._current.created_at = time.time()  # fade starts from release, not press
             self._annotations.append(self._current)
         self._current = None
         self._drawing = False

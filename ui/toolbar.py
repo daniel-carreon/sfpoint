@@ -10,6 +10,7 @@ import objc
 from PyQt6.QtWidgets import QWidget, QApplication, QMenu, QWidgetAction, QHBoxLayout, QLabel
 from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QPainterPath, QPen, QPixmap, QFont, QAction, QIcon
+from PyQt6.QtWidgets import QColorDialog
 from config import (
     TOOLBAR_HEIGHT, TOOLBAR_WIDTH, TOOLBAR_OPACITY, TOOLBAR_CORNER_RADIUS,
     TOOLBAR_MARGIN_BOTTOM, TOOLBAR_ICON_SIZE, LOGO_PATH, LOGO_SIZE,
@@ -19,6 +20,40 @@ from config import (
     LASER_COLOR, LASER_COLOR_MORADO, COLOR_MORADO,
     STROKE_THIN, STROKE_MEDIUM, STROKE_THICK, STROKE_EXTRA, STROKE_HEAVY,
 )
+
+
+def _make_swatch(color: QColor, checked: bool = False) -> QIcon:
+    pm = QPixmap(16, 16)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(color)
+    if checked:
+        p.drawEllipse(3, 3, 10, 10)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(QColor(255, 255, 255, 200), 1.5))
+        p.drawEllipse(1, 1, 14, 14)
+    else:
+        p.drawEllipse(2, 2, 12, 12)
+    p.end()
+    return QIcon(pm)
+
+
+def _make_stroke_preview(width: float, checked: bool = False) -> QIcon:
+    pm = QPixmap(16, 16)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    color = QColor(255, 255, 255, 220) if checked else QColor(210, 210, 210)
+    p.setPen(QPen(color, min(width, 14), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    p.drawLine(QPointF(2, 8), QPointF(14, 8))
+    if checked:
+        p.setPen(QPen(QColor(139, 92, 246), 1.5))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(1, 1, 14, 14, 3, 3)
+    p.end()
+    return QIcon(pm)
 
 LASER_MORADO_KEY = "laser-morado"
 
@@ -34,14 +69,14 @@ TOOL_LABELS = {
 }
 
 TOOL_SHORTCUT_LABELS = {
-    TOOL_ARROW: "\u2325A",
-    TOOL_RECT: "\u2325R",
-    TOOL_CIRCLE: "\u2325C",
-    TOOL_FREEHAND: "\u2325F",
-    TOOL_TEXT: "\u2325T",
-    TOOL_LASER: "\u2325P",
-    LASER_MORADO_KEY: "\u2325P",
-    TOOL_HIGHLIGHTER: "",
+    TOOL_ARROW: "^A",
+    TOOL_RECT: "^R",
+    TOOL_CIRCLE: "^C",
+    TOOL_FREEHAND: "^F",
+    TOOL_TEXT: "^T",
+    TOOL_LASER: "^P",
+    LASER_MORADO_KEY: "^P",
+    TOOL_HIGHLIGHTER: "^I",
 }
 
 
@@ -71,8 +106,38 @@ QMenu::separator {
 }
 """
 
-COLOR_NAMES = ["Morado", "Ambar", "Rojo", "Verde", "Blanco"]
-COLOR_HEX = ["#8B5CF6", "#F59E0B", "#EF4444", "#22C55E", "#FFFFFF"]
+_COLOR_MENU_STYLE = """
+QMenu {
+    background-color: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 4px 0;
+    color: #e0e0e0;
+    font-family: ".AppleSystemUIFont";
+    font-size: 12px;
+}
+QMenu::item {
+    padding: 5px 16px 5px 6px;
+    border-radius: 4px;
+    margin: 1px 4px;
+}
+QMenu::item:selected {
+    background-color: #8B5CF6;
+    color: white;
+}
+QMenu::indicator {
+    width: 0px;
+    height: 0px;
+}
+QMenu::separator {
+    height: 1px;
+    background: #333;
+    margin: 4px 8px;
+}
+"""
+
+COLOR_NAMES = ["Morado", "Ambar", "Rojo", "Verde", "Blanco", "Custom"]
+COLOR_HEX = ["#8B5CF6", "#F59E0B", "#EF4444", "#22C55E", "#FFFFFF", "#0EA5E9"]
 
 STROKE_LABELS = {STROKE_THIN: "Thin", STROKE_MEDIUM: "Medium", STROKE_THICK: "Thick", STROKE_EXTRA: "Extra", STROKE_HEAVY: "Heavy"}
 
@@ -91,6 +156,8 @@ class ToolbarWidget(QWidget):
     clear_requested = pyqtSignal()
     settings_requested = pyqtSignal()
     quit_requested = pyqtSignal()
+    deactivate_requested = pyqtSignal()
+    arrow_mode_toggled = pyqtSignal(bool)  # True = tip-first
 
     def __init__(self):
         super().__init__()
@@ -99,6 +166,7 @@ class ToolbarWidget(QWidget):
         self._stroke_width = STROKE_MEDIUM
         self._active = False
         self._drag_pos = None
+        self._arrow_tip_first = False
 
         self._bg_color = QColor(15, 15, 15, int(255 * TOOLBAR_OPACITY))
 
@@ -324,6 +392,19 @@ class ToolbarWidget(QWidget):
         menu = QMenu()
         menu.setStyleSheet(_MENU_STYLE)
 
+        # --- Stop Drawing (shown when a tool is active) ---
+        if self._active:
+            stop_action = menu.addAction("  Stop Drawing    Esc")
+            stop_action.triggered.connect(self.deactivate_requested.emit)
+            if self._tool == TOOL_ARROW:
+                tip_action = menu.addAction("  Draw from tip")
+                tip_action.setCheckable(True)
+                tip_action.setChecked(self._arrow_tip_first)
+                tip_action.triggered.connect(
+                    lambda checked: self.arrow_mode_toggled.emit(checked)
+                )
+            menu.addSeparator()
+
         # --- Tools ---
         for tool in TOOL_ORDER:
             label = TOOL_LABELS.get(tool, tool)
@@ -338,20 +419,24 @@ class ToolbarWidget(QWidget):
 
         # --- Colors ---
         color_menu = menu.addMenu("  Color")
-        color_menu.setStyleSheet(_MENU_STYLE)
-        for i, name in enumerate(COLOR_NAMES):
-            action = color_menu.addAction(f"  {name}")
-            action.setCheckable(True)
-            action.setChecked(self._color_index == i)
+        color_menu.setStyleSheet(_COLOR_MENU_STYLE)
+        for i, name in enumerate(COLOR_NAMES[:-1]):  # presets only
+            is_checked = self._color_index == i
+            action = color_menu.addAction(name)
+            action.setIcon(_make_swatch(COLOR_PALETTE[i], is_checked))
             action.triggered.connect(lambda checked, idx=i: self.color_selected.emit(idx))
+        color_menu.addSeparator()
+        custom_action = color_menu.addAction("Custom…")
+        custom_action.setIcon(_make_swatch(COLOR_PALETTE[5], self._color_index == 5))
+        custom_action.triggered.connect(self._pick_custom_color)
 
         # --- Stroke ---
         stroke_menu = menu.addMenu("  Stroke")
-        stroke_menu.setStyleSheet(_MENU_STYLE)
+        stroke_menu.setStyleSheet(_COLOR_MENU_STYLE)
         for width, label in STROKE_LABELS.items():
+            is_checked = abs(self._stroke_width - width) < 0.1
             action = stroke_menu.addAction(f"  {label}")
-            action.setCheckable(True)
-            action.setChecked(abs(self._stroke_width - width) < 0.1)
+            action.setIcon(_make_stroke_preview(width, is_checked))
             action.triggered.connect(lambda checked, w=width: self.stroke_selected.emit(w))
 
         menu.addSeparator()
@@ -374,6 +459,15 @@ class ToolbarWidget(QWidget):
         quit_action.triggered.connect(self.quit_requested.emit)
 
         menu.exec(global_pos)
+
+    def set_arrow_tip_first(self, tip_first: bool):
+        self._arrow_tip_first = tip_first
+
+    def _pick_custom_color(self):
+        color = QColorDialog.getColor(COLOR_PALETTE[5], None, "Pick a Custom Color")
+        if color.isValid():
+            COLOR_PALETTE[5] = color
+            self.color_selected.emit(5)
 
     # --- Dragging ---
 

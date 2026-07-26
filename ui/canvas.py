@@ -9,18 +9,19 @@ monitor receives its own native macOS NSWindow and mouse‐event routing.
 
 import ctypes
 import ctypes.util
+import math
 import time
 from ctypes import c_void_p
 import AppKit
 import objc
 from pynput import mouse as pynput_mouse
 from PyQt6.QtWidgets import QWidget, QApplication
-from PyQt6.QtCore import Qt, QTimer, QPointF, QObject, pyqtSignal, QPoint, QRectF
+from PyQt6.QtCore import Qt, QTimer, QPointF, QObject, pyqtSignal, QPoint, QRectF, QEvent
 from PyQt6.QtGui import QPainter, QColor, QCursor, QFont
 from core.drawing import Annotation, ShapeRenderer
 from config import (
-    CANVAS_FPS, FADE_DELAY, FADE_DURATION,
-    TOOL_LASER, TOOL_TEXT, TOOL_FREEHAND, TOOL_HIGHLIGHTER,
+    CANVAS_FPS, FADE_DELAY, FADE_DURATION, IDLE_HIDE_MS,
+    TOOL_LASER, TOOL_TEXT, TOOL_FREEHAND, TOOL_HIGHLIGHTER, TOOL_RECT, TOOL_CIRCLE, TOOL_ARROW,
     LASER_TRAIL_LENGTH, DEFAULT_TOOL, DEFAULT_STROKE,
     COLOR_PALETTE, DEFAULT_COLOR_INDEX, STROKE_HIGHLIGHTER,
     TEXT_FONT_SIZE, RIPPLE_DURATION, LASER_COLOR,
@@ -47,6 +48,27 @@ def _cg_hide_cursor():
 
 def _cg_show_cursor():
     _cg.CGDisplayShowCursor(_CG_DISPLAY)
+
+
+class _TextKeyFilter(QObject):
+    """Global key event filter active only during text input mode.
+
+    Installed on QApplication so key events are captured regardless of
+    which window has focus — avoids the window-flag toggle that caused
+    a native NSWindow recreate (visible flicker) on every text commit.
+    Returning True consumes the event, preventing the macOS system beep.
+    """
+
+    def __init__(self, mgr: "CanvasManager", overlay: "ScreenOverlay"):
+        super().__init__()
+        self._mgr = mgr
+        self._overlay = overlay
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.KeyPress:
+            self._mgr._handle_key(event, self._overlay)
+            return True  # consume — no beep, no further propagation
+        return False
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -80,6 +102,7 @@ class ScreenOverlay(QWidget):
         except Exception as e:
             print(f"Warning: native macOS setup failed on {self._screen.name()}: {e}")
         self._set_ignores_mouse(True)
+        self._set_sharing(False)  # hide from screenshot picker when idle
 
     def _setup_native_macos(self):
         ns_view = objc.objc_object(c_void_p=c_void_p(self.winId().__int__()))
@@ -104,6 +127,15 @@ class ScreenOverlay(QWidget):
             ns_view.window().setIgnoresMouseEvents_(ignore)
         except Exception:
             pass
+
+    def _set_sharing(self, visible: bool):
+        # NSWindowSharingReadOnly=1 (normal), NSWindowSharingNone=0 (hidden from capture)
+        try:
+            ns_view = objc.objc_object(c_void_p=c_void_p(self.winId().__int__()))
+            ns_view.window().setSharingType_(1 if visible else 0)
+            print(f"[sharing] screen={self._screen.name()} visible={visible} ok")
+        except Exception as e:
+            print(f"[sharing] screen={self._screen.name()} visible={visible} FAILED: {e}")
 
     def _bring_to_front(self):
         try:
@@ -141,7 +173,8 @@ class ScreenOverlay(QWidget):
 
     def mouseMoveEvent(self, event):
         gxy = self._to_global(event.position())
-        self._mgr._handle_move(gxy)
+        shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        self._mgr._handle_move(gxy, shift)
         event.accept()
 
     def mouseReleaseEvent(self, event):
@@ -247,12 +280,16 @@ class CanvasManager(QObject):
         # Ripple state
         self._ripples: list[dict] = []
 
+        # Arrow mode
+        self._arrow_tip_first = False
+
         # Text input state
         self._text_mode = False
         self._text_buffer = ""
         self._text_pos: tuple | None = None
         self._text_cursor_visible = True
         self._focus_overlay: ScreenOverlay | None = None
+        self._key_filter: _TextKeyFilter | None = None
 
         # Per-screen overlays
         self._overlays: list[ScreenOverlay] = []
@@ -279,6 +316,10 @@ class CanvasManager(QObject):
 
         self._ripple_signal.connect(self._add_ripple, Qt.ConnectionType.QueuedConnection)
 
+        self._idle_hide_timer = QTimer()
+        self._idle_hide_timer.setSingleShot(True)
+        self._idle_hide_timer.timeout.connect(self._hide_if_idle)
+
     # --- overlay management ---
 
     def _create_overlays(self):
@@ -296,6 +337,8 @@ class CanvasManager(QObject):
     def show(self):
         for ov in self._overlays:
             ov.show()
+        if not self._active and not self._laser_active:
+            self._idle_hide_timer.start(IDLE_HIDE_MS)
 
     def _update_all(self):
         for ov in self._overlays:
@@ -304,6 +347,10 @@ class CanvasManager(QObject):
     def _set_all_ignores_mouse(self, ignore: bool):
         for ov in self._overlays:
             ov._set_ignores_mouse(ignore)
+
+    def _set_all_sharing(self, visible: bool):
+        for ov in self._overlays:
+            ov._set_sharing(visible)
 
     def _bring_all_to_front(self):
         for ov in self._overlays:
@@ -316,8 +363,11 @@ class CanvasManager(QObject):
             return
         self._laser_active = on
         if on:
+            self._idle_hide_timer.stop()
+            self.show()
             self._bring_all_to_front()
             self._set_all_ignores_mouse(True)
+            self._set_all_sharing(True)
             self._laser_poll_timer.start()
             if not self._mouse_listener:
                 self._mouse_listener = pynput_mouse.Listener(
@@ -340,6 +390,8 @@ class CanvasManager(QObject):
                 _cg_show_cursor()
             if not self._active:
                 self._set_all_ignores_mouse(True)
+                self._set_all_sharing(False)
+                self._idle_hide_timer.start(IDLE_HIDE_MS)
         self._update_all()
 
     def set_laser_color(self, color):
@@ -350,8 +402,11 @@ class CanvasManager(QObject):
             return
         self._active = active
         if active:
+            self._idle_hide_timer.stop()
+            self.show()
             self._bring_all_to_front()
             self._set_all_ignores_mouse(False)
+            self._set_all_sharing(True)
             cursor = Qt.CursorShape.IBeamCursor if self._tool == TOOL_TEXT else Qt.CursorShape.CrossCursor
             for ov in self._overlays:
                 ov.setCursor(cursor)
@@ -362,6 +417,9 @@ class CanvasManager(QObject):
             if self._text_mode:
                 self._commit_text()
             self._set_all_ignores_mouse(True)
+            if not self._laser_active:
+                self._set_all_sharing(False)
+                self._idle_hide_timer.start(IDLE_HIDE_MS)
 
     def set_tool(self, tool: str):
         self._tool = tool
@@ -375,6 +433,9 @@ class CanvasManager(QObject):
         if 0 <= idx < len(COLOR_PALETTE):
             self._color_index = idx
             self.color_changed.emit(idx)
+
+    def set_arrow_tip_first(self, tip_first: bool):
+        self._arrow_tip_first = tip_first
 
     def set_stroke_width(self, width: float):
         self._stroke_width = width
@@ -419,7 +480,10 @@ class CanvasManager(QObject):
             self._text_cursor_visible = True
             self._cursor_timer.start()
             self._focus_overlay = overlay
-            overlay._grab_focus()
+            if self._key_filter:
+                QApplication.instance().removeEventFilter(self._key_filter)
+            self._key_filter = _TextKeyFilter(self, overlay)
+            QApplication.instance().installEventFilter(self._key_filter)
             self._update_all()
             return
 
@@ -427,26 +491,57 @@ class CanvasManager(QObject):
             return
 
         stroke = STROKE_HIGHLIGHTER if self._tool == TOOL_HIGHLIGHTER else self._stroke_width
+        if self._tool == TOOL_ARROW and self._arrow_tip_first:
+            # Head stays at press point (points[1]); tail (points[0]) moves on drag
+            initial_points = [gxy, gxy]
+        else:
+            initial_points = [gxy]
         self._current = Annotation(
             tool=self._tool,
-            points=[gxy],
+            points=initial_points,
             color=QColor(COLOR_PALETTE[self._color_index]),
             stroke_width=stroke,
         )
         self._drawing = True
 
-    def _handle_move(self, gxy: tuple):
+    def _handle_move(self, gxy: tuple, shift: bool = False):
         if not self._active or self._tool == TOOL_LASER:
             return
         if self._drawing and self._current:
             if self._tool in (TOOL_FREEHAND, TOOL_HIGHLIGHTER):
-                self._current.points.append(gxy)
-            else:
-                if len(self._current.points) == 1:
-                    self._current.points.append(gxy)
+                if shift:
+                    self._current.points = [self._current.points[0], gxy]
                 else:
-                    self._current.points[-1] = gxy
+                    self._current.points.append(gxy)
+            elif self._tool == TOOL_ARROW and self._arrow_tip_first:
+                # Head is anchored at points[1]; tail (points[0]) follows cursor
+                head = self._current.points[1]
+                tail = self._constrain(TOOL_ARROW, head, gxy) if shift else gxy
+                self._current.points[0] = tail
+            else:
+                anchor = self._current.points[0]
+                endpoint = self._constrain(self._tool, anchor, gxy) if shift else gxy
+                if len(self._current.points) == 1:
+                    self._current.points.append(endpoint)
+                else:
+                    self._current.points[-1] = endpoint
             self._update_all()
+
+    def _constrain(self, tool: str, anchor: tuple, end: tuple) -> tuple:
+        dx = end[0] - anchor[0]
+        dy = end[1] - anchor[1]
+        if tool in (TOOL_RECT, TOOL_CIRCLE):
+            size = min(abs(dx), abs(dy))
+            return (anchor[0] + (size if dx >= 0 else -size),
+                    anchor[1] + (size if dy >= 0 else -size))
+        else:  # arrow — snap to nearest 45°
+            if dx == 0 and dy == 0:
+                return end
+            angle = math.atan2(dy, dx)
+            snapped = round(angle / (math.pi / 4)) * (math.pi / 4)
+            dist = math.hypot(dx, dy)
+            return (anchor[0] + dist * math.cos(snapped),
+                    anchor[1] + dist * math.sin(snapped))
 
     def _handle_release(self, button):
         if not self._active or button != Qt.MouseButton.LeftButton:
@@ -469,9 +564,10 @@ class CanvasManager(QObject):
             self._text_buffer = ""
             self._text_pos = None
             self._cursor_timer.stop()
-            if self._focus_overlay:
-                self._focus_overlay._release_focus()
-                self._focus_overlay = None
+            if self._key_filter:
+                QApplication.instance().removeEventFilter(self._key_filter)
+                self._key_filter = None
+            self._focus_overlay = None
             self._update_all()
         elif key == Qt.Key.Key_Backspace:
             self._text_buffer = self._text_buffer[:-1]
@@ -484,6 +580,7 @@ class CanvasManager(QObject):
 
     def _finish_current(self):
         if self._current and len(self._current.points) >= 2:
+            self._current.created_at = time.time()  # fade starts from release, not press
             self._annotations.append(self._current)
         self._current = None
         self._drawing = False
@@ -502,9 +599,10 @@ class CanvasManager(QObject):
         self._text_buffer = ""
         self._text_pos = None
         self._cursor_timer.stop()
-        if self._focus_overlay:
-            self._focus_overlay._release_focus()
-            self._focus_overlay = None
+        if self._key_filter:
+            QApplication.instance().removeEventFilter(self._key_filter)
+            self._key_filter = None
+        self._focus_overlay = None
         self._update_all()
 
     def _blink_cursor(self):
@@ -582,3 +680,13 @@ class CanvasManager(QObject):
 
         if changed:
             self._update_all()
+
+    def _hide_if_idle(self):
+        """Hide all overlay windows when SFPoint is idle.
+
+        Called after FADE_DELAY+FADE_DURATION when both active and laser are off.
+        Hiding the NSWindows removes them from the macOS screenshot window picker.
+        """
+        if not self._active and not self._laser_active:
+            for ov in self._overlays:
+                ov.hide()

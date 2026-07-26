@@ -9,7 +9,7 @@ from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath
 from config import (
     TOOL_SHORTCUTS, SHORTCUT_HIDE_TOOLBAR, SHORTCUT_SETTINGS,
     TOOL_ARROW, TOOL_RECT, TOOL_CIRCLE, TOOL_FREEHAND,
-    TOOL_TEXT, TOOL_LASER,
+    TOOL_TEXT, TOOL_LASER, TOOL_HIGHLIGHTER,
     COLOR_MORADO, COLOR_AMBAR,
     save_shortcuts, load_shortcuts,
 )
@@ -22,6 +22,7 @@ TOOL_DISPLAY = {
     TOOL_FREEHAND: "Freehand",
     TOOL_TEXT: "Text",
     TOOL_LASER: "Pointer",
+    TOOL_HIGHLIGHTER: "Highlighter",
 }
 
 
@@ -31,12 +32,12 @@ class ShortcutButton(QPushButton):
     key_captured = pyqtSignal(str, str)  # (tool, new_key)
 
     def __init__(self, tool: str, current_key: str):
-        super().__init__(f"Ctrl + {current_key.upper()}")
+        super().__init__(f"^{current_key.upper()}")
         self._tool = tool
         self._current_key = current_key
         self._listening = False
-        self.setFixedWidth(100)
-        self.setFixedHeight(28)
+        self.setFixedWidth(110)
+        self.setFixedHeight(26)
         self.setStyleSheet(self._normal_style())
         self.clicked.connect(self._start_listening)
 
@@ -84,12 +85,12 @@ class ShortcutButton(QPushButton):
         if text and text.isalpha():
             new_key = text.lower()
             self._current_key = new_key
-            self.setText(f"Ctrl + {new_key.upper()}")
+            self.setText(f"^{new_key.upper()}")
             self._listening = False
             self.setStyleSheet(self._normal_style())
             self.key_captured.emit(self._tool, new_key)
         elif event.key() == Qt.Key.Key_Escape:
-            self.setText(f"Ctrl + {self._current_key.upper()}")
+            self.setText(f"^{self._current_key.upper()}")
             self._listening = False
             self.setStyleSheet(self._normal_style())
 
@@ -110,7 +111,7 @@ class SettingsPanel(QWidget):
             | Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(280, 340)
+        self.setFixedSize(300, 420)
 
         self._build_ui()
         self._position_on_screen()
@@ -137,8 +138,8 @@ class SettingsPanel(QWidget):
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(6)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(4)
 
         # Title
         title = QLabel("SFPoint Settings")
@@ -153,7 +154,7 @@ class SettingsPanel(QWidget):
         layout.addSpacing(8)
 
         # Tool shortcuts
-        tool_order = [TOOL_ARROW, TOOL_RECT, TOOL_CIRCLE, TOOL_FREEHAND, TOOL_TEXT, TOOL_LASER]
+        tool_order = [TOOL_ARROW, TOOL_RECT, TOOL_CIRCLE, TOOL_FREEHAND, TOOL_TEXT, TOOL_HIGHLIGHTER, TOOL_LASER]
         reverse_shortcuts = {v: k for k, v in self._shortcuts.items()}
 
         for tool in tool_order:
@@ -163,7 +164,7 @@ class SettingsPanel(QWidget):
 
             label = QLabel(TOOL_DISPLAY.get(tool, tool))
             label.setStyleSheet("color: rgba(255,255,255,0.8); font-size: 12px;")
-            label.setFixedWidth(80)
+            label.setFixedWidth(95)
             row.addWidget(label)
 
             btn = ShortcutButton(tool, key)
@@ -181,12 +182,12 @@ class SettingsPanel(QWidget):
         fixed_label.setStyleSheet("color: rgba(255,255,255,0.4); font-size: 11px; font-weight: 600;")
         layout.addWidget(fixed_label)
 
-        for name, shortcut in [("Hide Toolbar", "Ctrl+H"), ("Settings", "Ctrl+S"),
+        for name, shortcut in [("Hide Toolbar", "^H"), ("Settings", "^S"),
                                 ("Undo", "Cmd+Z"), ("Clear All", "Cmd+Shift+Z"), ("Deactivate", "Esc")]:
             row = QHBoxLayout()
             lbl = QLabel(name)
             lbl.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 11px;")
-            lbl.setFixedWidth(80)
+            lbl.setFixedWidth(95)
             row.addWidget(lbl)
             key_lbl = QLabel(shortcut)
             key_lbl.setStyleSheet("color: rgba(255,255,255,0.35); font-size: 11px;")
@@ -226,7 +227,7 @@ class SettingsPanel(QWidget):
             del self._shortcuts[new_key]
             # Update conflicting button to show "?"
             if conflicting_tool in self._buttons:
-                self._buttons[conflicting_tool].setText("Ctrl + ?")
+                self._buttons[conflicting_tool].setText("^?")
         # Assign
         self._shortcuts[new_key] = tool
         save_shortcuts(self._shortcuts)

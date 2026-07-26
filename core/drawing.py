@@ -51,8 +51,10 @@ class ShapeRenderer:
             return
         angle = math.atan2(dy, dx)
         head_angle = math.radians(ARROW_HEAD_ANGLE)
-        # Scale arrowhead with stroke width (base 14 at stroke 3)
-        head_len = ARROW_HEAD_LENGTH * max(1.0, ann.stroke_width / 3.0)
+        # Scale with both stroke width and arrow length (longer = bigger)
+        dist_scale = min(3.0, 1.0 + length / 150)
+        head_len = ARROW_HEAD_LENGTH * max(1.0, ann.stroke_width / 3.0) * dist_scale
+        stroke = ann.stroke_width * dist_scale
 
         # Arrowhead vertices — head BASE sits at end of line, tip extends beyond
         left = QPointF(
@@ -66,7 +68,7 @@ class ShapeRenderer:
 
         # Line ends at base of arrowhead (not at p2) so tip is a clean triangle
         base_mid = QPointF((left.x() + right.x()) / 2.0, (left.y() + right.y()) / 2.0)
-        pen = QPen(color, ann.stroke_width, Qt.PenStyle.SolidLine,
+        pen = QPen(color, stroke, Qt.PenStyle.SolidLine,
                     Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)

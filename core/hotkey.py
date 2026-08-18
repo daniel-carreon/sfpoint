@@ -1,52 +1,42 @@
-"""Global hotkey listener for screen annotation.
+"""Global hotkey — Option+P only.
 
-Toggle-based: Option+key toggles tools on/off.
-Option+A=arrow, Option+R=rect, Option+C=circle, Option+F=freehand,
-Option+T=text, Option+P=laser pointer, Option+H=hide toolbar,
-Option+S=settings, Esc=deactivate.
+Option+P cycles the laser: off → ambar → morado → off.
+Esc turns it off.
 
-Uses pynput with Qt signals (QueuedConnection required).
+Runs a pynput listener on its own thread; every signal crosses into Qt via
+QueuedConnection (wired in main.py).
 """
 
 from pynput import keyboard
 from PyQt6.QtCore import QObject, pyqtSignal
-from config import (
-    TOOL_SHORTCUTS, TOOL_LASER, SHORTCUT_HIDE_TOOLBAR, SHORTCUT_SETTINGS,
-    LASER_STATE_OFF, LASER_STATE_AMBAR, LASER_STATE_MORADO,
-)
+from config import SHORTCUT_LASER, VK_P
+
+# Option+P emits "π" on the macOS layout, so we match vk first, char second.
+_OPTION_CHARS = {SHORTCUT_LASER, "π"}
 
 
 class HotkeyListener(QObject):
-    """Toggle-based Option+key hotkey listener.
-
-    Signals:
-        tool_toggled(tool: str) — Option+tool key pressed (toggle on/off)
-        deactivated() — Esc pressed or tool toggled off
-        hide_toolbar() — Option+H pressed
-        open_settings() — Option+S pressed
-        undo_requested() — Cmd+Z pressed
-        clear_requested() — Cmd+Shift+Z pressed
+    """Signals:
+        cycle_requested() — Option+P
+        off_requested()   — Esc
     """
 
-    tool_toggled = pyqtSignal(str)
-    deactivated = pyqtSignal()
-    laser_toggled = pyqtSignal(int)  # laser state: 0=off, 1=ambar, 2=morado
-    hide_toolbar = pyqtSignal()
-    open_settings = pyqtSignal()
-    undo_requested = pyqtSignal()
-    clear_requested = pyqtSignal()
+    cycle_requested = pyqtSignal()
+    off_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
         self._option_held = False
-        self._cmd_held = False
-        self._shift_held = False
-        self._active_tool: str | None = None
-        self._laser_state = LASER_STATE_OFF  # cycles: off → ambar → morado → off
-        self._shortcuts = dict(TOOL_SHORTCUTS)
+        self._blocked_held = False   # cmd/ctrl held → not our shortcut
         self._listener: keyboard.Listener | None = None
 
+    # --- lifecycle ---
+
     def start(self):
+        """Start (or restart) the listener. Safe to call repeatedly."""
+        self.stop()
+        self._option_held = False
+        self._blocked_held = False
         self._listener = keyboard.Listener(
             on_press=self._on_press,
             on_release=self._on_release,
@@ -56,99 +46,46 @@ class HotkeyListener(QObject):
 
     def stop(self):
         if self._listener:
-            self._listener.stop()
+            try:
+                self._listener.stop()
+            except Exception:
+                pass
             self._listener = None
 
-    def update_shortcuts(self, shortcuts: dict):
-        self._shortcuts = dict(shortcuts)
+    # --- callbacks (pynput thread) ---
 
     def _on_press(self, key):
-        # Track modifiers
-        if key in (keyboard.Key.alt_l, keyboard.Key.alt_r, keyboard.Key.alt):
+        if key in (keyboard.Key.alt, keyboard.Key.alt_l, keyboard.Key.alt_r):
             self._option_held = True
-        if key in (keyboard.Key.cmd, keyboard.Key.cmd_l, keyboard.Key.cmd_r):
-            self._cmd_held = True
-        if key in (keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r):
-            self._shift_held = True
+            return
+        if key in (keyboard.Key.cmd, keyboard.Key.cmd_l, keyboard.Key.cmd_r,
+                   keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
+            self._blocked_held = True
+            return
 
-        # Esc = deactivate
         if key == keyboard.Key.esc:
-            if self._active_tool:
-                self._active_tool = None
-                self.deactivated.emit()
+            self.off_requested.emit()
             return
 
-        # Get char — Option on macOS produces special chars, so also check vk
-        char = None
-        try:
-            char = key.char
-        except AttributeError:
-            pass
-
-        # On macOS, Option+key produces unicode chars (å, ®, ©, etc.)
-        # Use vk (virtual key code) to get the original letter
-        if self._option_held and hasattr(key, 'vk') and key.vk is not None:
-            vk = key.vk
-            # macOS virtual key codes for letters
-            vk_map = {
-                0: 'a', 11: 'b', 8: 'c', 2: 'd', 14: 'e', 3: 'f',
-                5: 'g', 4: 'h', 34: 'i', 38: 'j', 40: 'k', 37: 'l',
-                46: 'm', 45: 'n', 31: 'o', 35: 'p', 12: 'q', 15: 'r',
-                1: 's', 17: 't', 32: 'u', 9: 'v', 13: 'w', 7: 'x',
-                16: 'y', 6: 'z',
-            }
-            if vk in vk_map:
-                char = vk_map[vk]
-
-        if not char:
+        if not self._option_held or self._blocked_held:
             return
 
-        char_lower = char.lower()
-
-        # Cmd+Z / Cmd+Shift+Z (undo/clear) — no Option required
-        if self._cmd_held and not self._option_held:
-            if char_lower == "z":
-                if self._shift_held:
-                    self.clear_requested.emit()
-                else:
-                    self.undo_requested.emit()
-                return
-
-        # Option+key shortcuts (toggle-based)
-        if not self._option_held:
-            return
-
-        # Option+H = hide/show toolbar
-        if char_lower == SHORTCUT_HIDE_TOOLBAR:
-            self.hide_toolbar.emit()
-            return
-
-        # Option+S = settings
-        if char_lower == SHORTCUT_SETTINGS:
-            self.open_settings.emit()
-            return
-
-        # Tool shortcuts
-        if char_lower in self._shortcuts:
-            tool = self._shortcuts[char_lower]
-            if tool == TOOL_LASER:
-                # Cycle: off(0) → ambar(1) → morado(2) → off(0)
-                self._laser_state = (self._laser_state % 3) + 1
-                if self._laser_state > LASER_STATE_MORADO:
-                    self._laser_state = LASER_STATE_OFF
-                self.laser_toggled.emit(self._laser_state)
-            elif self._active_tool == tool:
-                self._active_tool = None
-                self.deactivated.emit()
-            else:
-                self._active_tool = tool
-                self.tool_toggled.emit(tool)
-            return
+        if self._is_p(key):
+            self.cycle_requested.emit()
 
     def _on_release(self, key):
-        if key in (keyboard.Key.alt_l, keyboard.Key.alt_r, keyboard.Key.alt):
+        if key in (keyboard.Key.alt, keyboard.Key.alt_l, keyboard.Key.alt_r):
             self._option_held = False
-        if key in (keyboard.Key.cmd, keyboard.Key.cmd_l, keyboard.Key.cmd_r):
-            self._cmd_held = False
-        if key in (keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r):
-            self._shift_held = False
+        if key in (keyboard.Key.cmd, keyboard.Key.cmd_l, keyboard.Key.cmd_r,
+                   keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
+            self._blocked_held = False
+
+    # --- helpers ---
+
+    @staticmethod
+    def _is_p(key) -> bool:
+        vk = getattr(key, "vk", None)
+        if vk == VK_P:
+            return True
+        char = getattr(key, "char", None)
+        return bool(char) and char.lower() in _OPTION_CHARS

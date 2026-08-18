@@ -1,173 +1,118 @@
-# CLAUDE.md — SFPoint: Complete Setup & Development Guide
+# CLAUDE.md — SFPoint
 
-> This file is designed for AI agents. If you just cloned this repo, follow the **Automated Setup** section to get SFPoint running end-to-end without human intervention.
+> For AI agents. SFPoint v2.0 is a **laser pointer and nothing else**.
+> If you are about to add a tool, a toolbar or a settings panel: don't. They were
+> all deleted on purpose (v1.0 had them, they went unused, and every one of them
+> was surface that could break).
 
-## What is SFPoint?
+## What SFPoint is
 
-SFPoint is a macOS screen annotation tool (Presentify replacement). Toggle-based Ctrl+key shortcuts activate/deactivate tools. Draw temporary arrows, rectangles, circles, freehand lines, text, laser pointer, or highlighter on a transparent fullscreen overlay. Annotations auto-fade after 3 seconds. Laser pointer is click-through (doesn't block mouse). SF brand colors: morado #8B5CF6, ambar #F59E0B.
+A macOS menu bar app that draws a neon laser dot over everything.
+`⌥P` cycles `off → ambar → morado → off`. `Esc` turns it off. That is the whole
+product surface.
 
----
+- Overlay is **always click-through** (`setIgnoresMouseEvents_(True)`), never
+  steals focus (`NSWindowStyleMaskNonactivatingPanel`), one window per screen.
+- Colors: ambar `#F59E0B`, morado `#8C27F1`. The click ripple is always the
+  opposite color of the active laser.
 
-## Quick Start (Dev Mode)
-
-```bash
-# 1. Clone
-git clone https://github.com/daniel-carreon/sfpoint.git
-cd sfpoint
-
-# 2. Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# 3. Install Python dependencies
-pip install -r requirements.txt
-
-# 4. Run
-python3 main.py
-```
-
-## Build Desktop App (.app bundle)
+## Commands
 
 ```bash
-# Build SFPoint.app (generates icns, builds with PyInstaller, signs ad-hoc)
-bash build.sh
-
-# Install to Applications (MUST use ditto, not cp -r)
-ditto dist/SFPoint.app /Applications/SFPoint.app
-
-# Remove quarantine if needed
-xattr -cr /Applications/SFPoint.app
+bash build.sh              # build into dist/
+bash build.sh --install    # build + replace /Applications/SFPoint.app + launch
+./venv/bin/python main.py  # dev mode
 ```
 
-The .app bundle is self-contained (~90MB). No Python, no venv, no terminal needed.
-The app lives in the menu bar (no Dock icon).
+`build.sh` creates the venv on first run. Python 3.12+ (3.13 preferred).
 
-### Build Requirements
-- Python 3.12+ with venv
-- PyInstaller (installed automatically by build.sh)
+## THE bug to never reintroduce: silent permission death
 
-## macOS Permissions Required
+`⌥P` is a **listen-only CGEventTap** (pynput), gated by macOS behind
+`kTCCServiceListenEvent` = *Privacy & Security > Input Monitoring*.
 
-**CRITICAL — SFPoint will NOT work without these permissions.**
+macOS binds that grant to the app's **code signature**. Ad-hoc signing
+(`codesign --sign -`) has no stable identity, so the grant is pinned to the exact
+cdhash. Any rebuild → new hash → the stored requirement stops matching → **the
+tap is denied with zero errors** while System Settings still lists the app as
+enabled. Symptom: the app opens, the icon is there, and no shortcut does
+anything.
 
-- **Accessibility**: System Settings > Privacy & Security > Accessibility > add SFPoint.app (or your Terminal for dev mode)
-- **Input Monitoring**: System Settings > Privacy & Security > Input Monitoring > add SFPoint.app (or your Terminal for dev mode)
+Ground truth is in the log, not in System Settings:
 
-**If permissions dialog doesn't appear:** Go to System Settings manually and toggle the app ON.
-
----
-
-## Usage Details
-
-### Tool Shortcuts (Toggle-Based)
-
-| Action | Shortcut |
-|--------|----------|
-| Arrow | Ctrl+A (toggle) |
-| Rectangle | Ctrl+R (toggle) |
-| Circle | Ctrl+C (toggle) |
-| Freehand | Ctrl+F (toggle) |
-| Text | Ctrl+T (toggle, type + Enter to place) |
-| Laser pointer | Ctrl+P (toggle, click-through, ambar dot + morado ripple on click) |
-| Hide/show toolbar | Ctrl+H |
-| Settings panel | Ctrl+S |
-| Undo | Cmd+Z |
-| Clear all | Cmd+Shift+Z |
-| Deactivate | Esc |
-
-### Laser Pointer Behavior
-- **Click-through**: laser does NOT block mouse clicks, right-click, drag, etc.
-- **Cursor tracking**: follows cursor via QCursor.pos() polling (no mouse capture)
-- **Ambar dot**: subtle 5px dot with soft 14px glow halo
-- **Trail**: thin fading line (18 points max), decays when mouse stops
-- **Ripple on click**: morado (#8B5CF6) expanding ring with ease-out animation (0.4s)
-- Detected via pynput mouse listener running alongside keyboard listener
-
----
-
-## Project Structure
-
-```
-sfpoint/
-├── main.py              # Entry point — tray icon, launch-at-login, signal wiring
-├── config.py            # All configuration constants (UI, tools, paths, bundle detection)
-├── sfpoint.spec         # PyInstaller spec for building .app bundle
-├── build.sh             # One-shot build script (icns → PyInstaller → sign)
-├── core/
-│   ├── hotkey.py        # Global hotkeys (pynput, toggle-based Option+key)
-│   └── drawing.py       # Shape engine (Annotation dataclass + ShapeRenderer)
-├── ui/
-│   ├── canvas.py        # Fullscreen transparent overlay with click-through
-│   ├── toolbar.py       # Floating pill toolbar (current tool + color)
-│   └── settings.py      # Settings panel (rebindable shortcuts)
-├── logo.png             # SFPoint logo (full size, used for .icns generation)
-├── logo_small.png       # Small logo (22x22 for menu bar + toolbar pill)
-├── SFPoint.icns         # macOS app icon (generated from logo.png)
-├── requirements.txt     # PyQt6, pynput, pyobjc-framework-Cocoa, numpy
-├── PRP.md               # Project Requirements Plan (build blueprint for AI)
-├── CLAUDE.md            # This file
-└── README.md            # Public-facing documentation
+```bash
+/usr/bin/log show --last 30m --predicate 'subsystem == "com.apple.TCC"' \
+  --style compact | grep -i sfpoint
+# Failed to match existing code requirement for subject
+# so.saasfactory.sfpoint and service kTCCServiceListenEvent
 ```
 
----
+Three defenses are in place. Keep all three:
 
-## Critical Implementation Details
+1. **Stable signing identity** (`build.sh`): signs with `$SIGN_ID`
+   (default `SFlow Dev`, a self-signed Code Signing cert in the login keychain).
+   With a certificate the designated requirement is identifier + cert hash, so
+   the grant survives rebuilds. The script warns loudly if it falls back to ad-hoc.
+2. **Preflight + visible feedback** (`core/permissions.py`, `main.py`):
+   `CGPreflightListenEventAccess` on launch, then `CGRequestListenEventAccess`.
+   If still denied, the app SAYS SO (dialog + permanent menu item + the exact
+   `tccutil reset` command). It must never fail quietly again.
+3. **Fallback control surface** (`main.py` tray menu): the laser can be driven
+   entirely from the menu bar. Cursor tracking uses `QCursor.pos()`, which needs
+   no permission, so the laser still works when the hotkey is dead.
 
-### 1. Click-Through Toggle (PyObjC)
-The canvas overlay uses `NSWindow.setIgnoresMouseEvents_()` to toggle between:
-- **Inactive**: clicks pass through to apps below (default state)
-- **Active (non-laser)**: canvas captures mouse for drawing shapes
-- **Active (laser)**: stays click-through, tracks cursor via polling
+A watchdog (2s) re-checks the permission and restarts the pynput listener the
+moment it is granted, so no relaunch is needed after approving.
 
-### 2. Qt Signal Threading
-pynput keyboard and mouse listeners run on their own threads. ALL signals use explicit `Qt.ConnectionType.QueuedConnection` for thread safety. The laser ripple uses a dedicated `pyqtSignal(float, float)` to safely marshal click coordinates from pynput thread to Qt main thread.
+Repair command when a record goes stale:
 
-### 3. Floating Window (no focus steal)
-PyObjC `NSFloatingWindowLevel` + `NSWindowStyleMaskNonactivatingPanel` ensures overlay never steals focus. Canvas is at level `NSFloatingWindowLevel + 1`, toolbar at `NSFloatingWindowLevel`, settings at `NSFloatingWindowLevel + 2`.
+```bash
+tccutil reset ListenEvent so.saasfactory.sfpoint
+```
 
-### 4. Bundle vs Dev Mode (config.py)
-`config.py` detects `sys.frozen` to switch between dev and .app bundle:
-- **Dev mode**: assets and data live in the project root directory
-- **Bundle mode**: read-only assets (logo) come from `sys._MEIPASS`, writable data (settings.json) goes to `~/Library/Application Support/SFPoint/`
+## Other invariants
 
-### 5. Desktop App Features (main.py)
-- **System Tray**: QSystemTrayIcon in menu bar with Settings, "Start with macOS" toggle, Quit
-- **Launch at Login**: Creates/removes a LaunchAgent plist in `~/Library/LaunchAgents/`
-- **Hide from Dock**: `NSApplicationActivationPolicyAccessory` via PyObjC (MUST be set AFTER all windows are shown)
+- **`ditto`, never `cp -r`** when installing the bundle. `cp -r` corrupts bundle
+  metadata and the app segfaults. `build.sh --install` does it right.
+- **Balanced cursor hiding.** `CGDisplayHideCursor` increments a system-wide
+  counter; it must be undone exactly. `ui/canvas.py` counts every hide and
+  releases them all in `_restore_cursor()`, called on laser-off AND on quit.
+  Leaking them leaves the user with no cursor at all, unrecoverably.
+  (v1.0 called show 500 times and hoped. Don't go back to that.)
+- **Qt threading.** pynput listeners run on their own threads. Every signal into
+  Qt uses `Qt.ConnectionType.QueuedConnection`.
+- **Efficiency contract.** Laser off = overlays hidden, no timers, no listeners.
+  Laser on = one 60fps timer that repaints only the dirty rect (bounding box of
+  dot + trail + ripples, unioned with the previous frame's). Never repaint a
+  fullscreen overlay every frame.
+- **Dock icon.** `LSUIElement` + `NSApplicationActivationPolicyAccessory`, set
+  after the tray exists.
+- **Bundle vs dev.** `config.py` reads `sys.frozen`; assets come from
+  `sys._MEIPASS` in the bundle. There is no settings file anymore.
 
-### 6. Settings Persistence
-Custom shortcuts saved to `settings.json` via `config.load_shortcuts()` / `config.save_shortcuts()`. Settings panel (Option+S) allows live rebinding with automatic conflict resolution. In bundle mode, settings go to `~/Library/Application Support/SFPoint/settings.json`.
+## Layout
 
-### 7. Building the .app (IMPORTANT)
-- Use `ditto` (not `cp -r`) to copy .app to /Applications — `cp -r` corrupts bundle metadata causing segfaults
-- The .icns is auto-generated from logo.png by build.sh if missing
-- Ad-hoc signing (`codesign --force --deep --sign -`) is sufficient for personal use
-- Remove quarantine after install: `xattr -cr /Applications/SFPoint.app`
+```
+main.py               tray icon + state machine + permission watchdog
+config.py             colors, geometry, the one shortcut
+core/hotkey.py        ⌥P (vk 35, or "π" on the macOS layout) + Esc
+core/laser.py         renderer: bloom dot, 3-pass trail, ripple
+core/permissions.py   Input Monitoring preflight / request / repair
+ui/canvas.py          per-screen overlays, frame loop, cursor, dirty rects
+build.sh              icon → venv → PyInstaller → sign → install
+sfpoint.spec          PyInstaller config
+```
 
----
+Deleted in v2.0 (recover from git history if ever needed, but read the top of
+this file first): `core/drawing.py`, `ui/toolbar.py`, `ui/settings.py`.
 
-## Brand Colors
+## Troubleshooting
 
-| Color | Hex | Use |
-|-------|-----|-----|
-| Morado | #8B5CF6 | Default annotations, click ripple |
-| Ambar | #F59E0B | Laser pointer dot + trail |
-| Red | #EF4444 | Palette option |
-| Green | #22C55E | Palette option |
-| White | #FFFFFF | Palette option |
-
----
-
-## Common Issues
-
-| Problem | Solution |
-|---------|----------|
-| Tool doesn't activate | Grant Accessibility + Input Monitoring to SFPoint.app (or Terminal in dev mode) |
-| Overlay steals focus | Verify pyobjc-framework-Cocoa installed: `pip install pyobjc-framework-Cocoa` |
-| Font warning in console | Cosmetic — uses `.AppleSystemUIFont` (macOS system font) |
-| Python version error | Requires 3.12+ — `brew install python@3.12` |
-| Laser blocks clicks | Update to latest version — laser now uses click-through mode |
-| No ripple on click | pynput mouse listener needs Input Monitoring permission |
-| Permissions dialog never appears | Manually add SFPoint.app to Accessibility + Input Monitoring in System Settings |
-| .app crashes (segfault) | Was copied with `cp -r` instead of `ditto`. Reinstall with `ditto` |
-| .app blocked by macOS | Run `xattr -cr /Applications/SFPoint.app` to remove quarantine |
+| Problem | Cause / fix |
+|---------|-------------|
+| `⌥P` does nothing, app is running | Input Monitoring denied. Check the TCC log above, then `tccutil reset ListenEvent so.saasfactory.sfpoint` and restart |
+| Worked before, broke after a rebuild | Ad-hoc signature. Rebuild with `SIGN_ID` set to a real identity |
+| Cursor disappeared and won't come back | Unbalanced `CGDisplayHideCursor`. Quit SFPoint (it releases on quit); the bug is in `_restore_cursor()` |
+| Laser lags or trails smear | Dirty-rect math in `_dirty_global()` is too tight; widen `LASER_PAD` / `RIPPLE_PAD` in `core/laser.py` |
+| App segfaults after install | Installed with `cp -r`. Reinstall with `ditto` |
+| App blocked by macOS | `xattr -cr /Applications/SFPoint.app` |

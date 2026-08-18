@@ -5,7 +5,7 @@
 <h1 align="center">SFPoint</h1>
 
 <p align="center">
-  <strong>Open-source screen annotation tool for macOS. Presentify alternative at $0 cost.</strong>
+  <strong>A laser pointer for your Mac screen. One shortcut, nothing else.</strong>
 </p>
 
 <p align="center">
@@ -20,194 +20,144 @@
 
 ## What is SFPoint?
 
-SFPoint is a **screen annotation overlay** for macOS. Toggle a hotkey, draw on your screen, keep teaching. Arrows, rectangles, circles, freehand, text, laser pointer — all on a transparent overlay that auto-fades after 3 seconds.
+A neon laser pointer that floats over everything on macOS. Press `⌥P` to cycle it:
 
-Built as a replacement for [Presentify](https://presentify.compzets.com) ($6.99). SFPoint is free, open-source, and fully customizable.
+```
+off  →  ambar  →  morado  →  off
+```
+
+That is the entire app. No tools, no toolbar, no modes to learn. It lives in the
+menu bar, never steals focus, and never blocks a click.
+
+v2.0 deliberately removed arrows, rectangles, circles, freehand, text, the
+highlighter, the floating toolbar and the settings panel. A tool you never use is
+a tool that can break.
 
 ### Features
 
-- **Native macOS app** — lives in the menu bar, no terminal needed, starts with your Mac
-- **7 annotation tools** — arrow, rectangle, circle, freehand, text, laser pointer, highlighter
-- **Toggle-based shortcuts** — Option+key to activate, same key or Esc to deactivate
-- **Auto-fade** — annotations disappear after 3 seconds (configurable)
-- **Laser pointer** — ambar Google Slides-style, click-through (doesn't block mouse), morado ripple on click
-- **No focus stealing** — overlay floats above everything without interrupting your work (native macOS APIs)
-- **Click-through** — laser always passes clicks through; other tools only capture when active
-- **Floating toolbar** — draggable pill showing current tool and color
-- **Rebindable shortcuts** — settings panel (Option+S) to customize keybindings
-- **Brand colors** — morado (#8B5CF6) + ambar (#F59E0B) from SaaS Factory
+- **One shortcut** — `⌥P` cycles off → ambar → morado → off. `Esc` kills it.
+- **Two brand colors** — ambar `#F59E0B` and morado `#8C27F1`.
+- **Never blocks the mouse** — the overlay is click-through, always.
+- **Click shockwave** — every click paints a ripple in the opposite color.
+- **Multi-monitor** — one overlay per screen, the trail crosses them seamlessly.
+- **Idle when off** — no timers, no listeners, no windows. ~0% CPU.
+- **Cheap when on** — a single 60fps timer repainting only the dirty rect.
+- **Menu bar mirror** — the icon becomes a colored dot showing the active color,
+  and its menu can drive the laser even if macOS revokes the hotkey permission.
 
 ---
 
-## Quick Start
-
-### Prerequisites
-
-- macOS 15+
-- Python 3.12+
-- [Homebrew](https://brew.sh)
-
-### Install (Desktop App — Recommended)
+## Install
 
 ```bash
-# Clone
 git clone https://github.com/daniel-carreon/sfpoint.git
 cd sfpoint
-
-# Python environment
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# Build the .app
-bash build.sh
-
-# Install (IMPORTANT: use ditto, not cp -r)
-ditto dist/SFPoint.app /Applications/SFPoint.app
-xattr -cr /Applications/SFPoint.app
+bash build.sh --install
 ```
 
-Open SFPoint from Spotlight or `/Applications`. It lives in the menu bar (no Dock icon).
+That builds the `.app`, signs it, replaces `/Applications/SFPoint.app` and
+launches it. First run asks for **Input Monitoring**; grant it and you are done.
 
-### Install (Dev Mode)
+Dev mode:
 
 ```bash
-git clone https://github.com/daniel-carreon/sfpoint.git
-cd sfpoint
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python3 main.py
+python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
+./venv/bin/python main.py
 ```
 
 ---
 
 ## Usage
 
-| Action | Shortcut |
-|--------|----------|
-| **Arrow** | `Option+A` |
-| **Rectangle** | `Option+R` |
-| **Circle** | `Option+C` |
-| **Freehand** | `Option+F` |
-| **Text** | `Option+T` (type, Enter to place) |
-| **Laser pointer** | `Option+P` (ambar glow trail) |
-| **Hide toolbar** | `Option+H` |
-| **Settings** | `Option+S` or menu bar |
-| **Start with macOS** | Toggle in menu bar |
-| **Undo** | `Cmd+Z` |
-| **Clear all** | `Cmd+Shift+Z` |
-| **Deactivate** | `Esc` or press same shortcut again |
-| **Quit** | Menu bar > "Quit SFPoint" |
-
-All tool shortcuts are **toggle-based**: press once to activate, press again (or Esc) to deactivate.
+| Action | How |
+|--------|-----|
+| Cycle laser (off → ambar → morado) | `⌥P` |
+| Turn off | `Esc` or `⌥P` on morado |
+| Pick a color directly | Menu bar icon |
+| Start with macOS | Menu bar > "Iniciar con macOS" |
+| Quit | Menu bar > "Salir" |
 
 ---
 
-## macOS Permissions
+## macOS permission
 
-SFPoint needs these permissions (System Settings > Privacy & Security):
+SFPoint needs exactly one: **Input Monitoring**
+(System Settings > Privacy & Security > Input Monitoring).
 
-1. **Accessibility** — for global hotkeys and overlay interaction (add SFPoint.app or your Terminal app)
-2. **Input Monitoring** — for keyboard listener (add SFPoint.app or your Terminal app)
+It is what lets the app hear `⌥P` while another app is focused. Without it the
+laser still works from the menu bar, and the app tells you instead of going
+quiet.
+
+### If the shortcut stops working after a rebuild
+
+macOS ties a permission to the app's code signature. An **ad-hoc** signature has
+no stable identity, so every rebuild produces a new hash, the stored record stops
+matching, and macOS denies the permission **silently** while still showing the
+app as enabled in System Settings. The log tells the truth:
+
+```
+Failed to match existing code requirement for subject
+so.saasfactory.sfpoint and service kTCCServiceListenEvent
+```
+
+Fix the record, then restart the app:
+
+```bash
+tccutil reset ListenEvent so.saasfactory.sfpoint
+```
+
+Fix it permanently by signing with a stable self-signed identity (Keychain
+Access > Certificate Assistant > Create a Certificate, type "Code Signing"):
+
+```bash
+SIGN_ID="Your Cert Name" bash build.sh --install
+```
+
+`build.sh` warns loudly whenever it has to fall back to ad-hoc signing.
 
 ---
 
 ## Architecture
 
 ```
-Ctrl+Key (pynput) --> Toggle Tool On/Off --> Canvas Overlay (PyQt6 + PyObjC)
-                                                    |
-                                              QPainter Rendering
-                                                    |
-                                        Auto-Fade (3s delay + 0.5s fade)
-                                                    |
-                                          Floating Toolbar (pill UI)
+⌥P (pynput listen-only tap)  ──►  cycle state  ──►  one overlay per screen
+                                                    (PyObjC floating panel,
+                                                     click-through, no focus)
+                                                            │
+                                                    QPainter: radial-gradient
+                                                    bloom + 3-pass neon trail
 ```
 
-Key technical decisions:
-- **PyObjC/AppKit** for native macOS window that floats without stealing focus
-- **`setIgnoresMouseEvents_`** for click-through toggle (the core innovation)
-- **Qt QueuedConnection** for thread-safe signals between pynput and UI
-- **QPainter** for all rendering (shapes, laser trail with radial gradients, text)
-- **Toggle-based hotkeys** instead of hold-based for better ergonomics
+- **PyObjC / AppKit** — `NSFloatingWindowLevel + 1`, `NSWindowStyleMaskNonactivatingPanel`
+  and `setIgnoresMouseEvents_(True)` give an overlay that floats above everything,
+  never takes focus and never eats a click.
+- **Global coordinates** — state is stored in screen space; each overlay
+  translates its painter, so nothing breaks across monitors.
+- **Dirty-rect repaints** — only the bounding box of the dot, trail and ripples
+  is repainted, never the full screen.
+- **Balanced cursor hiding** — `CGDisplayHideCursor` is a counter, not a flag.
+  Every hide is counted and undone on exit; leaking them hides the user's cursor
+  system-wide with no way back.
+- **Qt QueuedConnection** — pynput runs on its own thread; every signal into Qt
+  is queued.
 
----
-
-## Build It Yourself with Claude
-
-Want to build this from scratch? Copy [`PRP.md`](PRP.md) and paste it to [Claude](https://claude.ai) (or any AI assistant) with:
-
-> "Build this project following the PRP phases. Execute all phases sequentially, validating each one before moving to the next."
-
-The PRP contains the complete blueprint: architecture, gotchas, anti-patterns, and validation steps. It's designed so an AI agent can build the entire project in a single session.
-
-See [`CLAUDE.md`](CLAUDE.md) for detailed development instructions and troubleshooting.
-
----
-
-## Customization
-
-All configuration lives in `config.py`:
-
-```python
-# Shortcuts (toggle-based Ctrl+key)
-TOOL_SHORTCUTS = {
-    "a": TOOL_ARROW, "r": TOOL_RECT, "c": TOOL_CIRCLE,
-    "f": TOOL_FREEHAND, "t": TOOL_TEXT, "p": TOOL_LASER,
-}
-
-# Fade timing
-FADE_DELAY = 3.0        # seconds before fade starts
-FADE_DURATION = 0.5      # seconds for fade animation
-
-# Laser pointer (subtle, elegant)
-LASER_DOT_RADIUS = 5.0
-LASER_GLOW_RADIUS = 14.0
-LASER_TRAIL_LENGTH = 18  # clean, short trail
-
-# Toolbar
-TOOLBAR_HEIGHT = 34
-TOOLBAR_WIDTH = 180
 ```
-
-Custom shortcuts are saved to `settings.json` via the settings panel (Ctrl+S).
-
----
-
-## Cost Comparison
-
-| | Presentify | SFPoint |
-|---|---|---|
-| Cost | $6.99 one-time | Free |
-| Customizable | Limited | Fully |
-| Open source | No | Yes |
-| Laser pointer | Red | Ambar (Google Slides-style) |
-| Auto-fade | Yes | Yes (configurable) |
-| Rebindable shortcuts | No | Yes |
-
----
-
-## Troubleshooting
-
-| Problem | Solution |
-|---------|----------|
-| Tool doesn't activate | Grant Accessibility + Input Monitoring to SFPoint.app (or Terminal in dev mode) |
-| Overlay steals focus | Verify pyobjc-framework-Cocoa: `pip install pyobjc-framework-Cocoa` |
-| Font warning in console | Cosmetic — uses system font `.AppleSystemUIFont` |
-| Python version error | Requires 3.12+ (`list[]` generics, `\|` union syntax) |
-| .app crashes (segfault) | Reinstall with `ditto` (not `cp -r`): `ditto dist/SFPoint.app /Applications/SFPoint.app` |
-| .app blocked by macOS | Remove quarantine: `xattr -cr /Applications/SFPoint.app` |
+main.py              tray icon, state machine, permission watchdog
+config.py            colors, geometry, the one shortcut
+core/hotkey.py       ⌥P + Esc (pynput)
+core/laser.py        the renderer (dot, trail, ripple)
+core/permissions.py  Input Monitoring: preflight, request, repair
+ui/canvas.py         per-screen overlays + frame loop
+```
 
 ---
 
 ## License
 
-MIT License. Do whatever you want with it.
+MIT. Do whatever you want with it.
 
 ---
 
 <p align="center">
-  Built with Claude Opus 4.6 in a single session.<br>
   <sub>From <a href="https://github.com/daniel-carreon">daniel-carreon</a> — <strong>SF</strong>Point</sub>
 </p>

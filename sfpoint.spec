@@ -1,29 +1,37 @@
 # -*- mode: python ; coding: utf-8 -*-
-# sfpoint.spec — PyInstaller config for SFPoint.app
+# sfpoint.spec — PyInstaller config for SFPoint.app (laser only)
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
 # --- PyObjC hidden imports ---
-pyobjc_hidden = collect_submodules("objc") + collect_submodules("AppKit") + collect_submodules("Foundation") + collect_submodules("Cocoa") + collect_submodules("PyObjCTools")
-pyobjc_datas = collect_data_files("objc") + collect_data_files("AppKit") + collect_data_files("Foundation")
+pyobjc_hidden = (
+    collect_submodules("objc")
+    + collect_submodules("AppKit")
+    + collect_submodules("Foundation")
+    + collect_submodules("Cocoa")
+    + collect_submodules("PyObjCTools")
+)
+pyobjc_datas = (
+    collect_data_files("objc")
+    + collect_data_files("AppKit")
+    + collect_data_files("Foundation")
+)
 
-# --- sounddevice is not used here, but pynput needs its darwin backend ---
+# pynput's darwin backends + Quartz (CGPreflightListenEventAccess lives there)
 pynput_hidden = [
     "pynput.keyboard._darwin",
     "pynput.mouse._darwin",
     "pynput._util.darwin",
+    "Quartz",
 ]
 
 a = Analysis(
     ["main.py"],
     pathex=["."],
     binaries=[],
-    datas=[
-        ("logo.png", "."),
-        ("logo_small.png", "."),
-    ] + pyobjc_datas,
+    datas=[("logo_small.png", ".")] + pyobjc_datas,
     hiddenimports=[
         *pyobjc_hidden,
         *pynput_hidden,
@@ -32,7 +40,6 @@ a = Analysis(
         "PyQt6.QtGui",
         "PyQt6.QtWidgets",
         "PyQt6.sip",
-        "numpy",
         "plistlib",
         "ctypes",
         "ctypes.util",
@@ -40,7 +47,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter", "unittest", "test"],
+    excludes=["tkinter", "unittest", "test", "numpy", "PIL"],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -83,10 +90,9 @@ app = BUNDLE(
         "LSUIElement": True,
         "CFBundleName": "SFPoint",
         "CFBundleDisplayName": "SFPoint",
-        "CFBundleShortVersionString": "1.0.0",
-        "CFBundleVersion": "1",
-        "NSAccessibilityUsageDescription": "SFPoint needs Accessibility to detect global hotkeys and display screen annotations.",
-        "NSAppleEventsUsageDescription": "SFPoint uses AppleScript for system integration.",
+        "CFBundleShortVersionString": "2.0.0",
+        "CFBundleVersion": "2",
+        "NSAccessibilityUsageDescription": "SFPoint necesita escuchar el atajo global Option+P para encender y apagar el laser.",
         "NSHighResolutionCapable": True,
     },
 )

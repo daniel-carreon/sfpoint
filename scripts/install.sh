@@ -7,8 +7,16 @@ bash "$ROOT/scripts/build-app.sh"
 echo "[5/7] Instalando"
 pkill -x SFPoint 2>/dev/null || true
 sleep 0.5
+# rm -rf + ditto y NO ditto-encima como sflow/sfocus: aqui se prefiere que el
+# bundle quede limpio de assets huerfanos (ditto hace merge, no sincroniza, y
+# un PNG viejo que sobrevive es justo el tipo de fantasma que costo el bug del
+# cuadrado blanco). La ventana sin app la cubre el refresco de LaunchServices
+# del paso 6.
 rm -rf /Applications/SFPoint.app
 ditto "$ROOT/dist/SFPoint.app" /Applications/SFPoint.app
+# Red contra Gatekeeper: si el bundle adquiere com.apple.quarantine (zip,
+# AirDrop, sync de nube) macOS puede bloquearlo o translocarlo. Leccion de sflow.
+xattr -cr /Applications/SFPoint.app 2>/dev/null || true
 echo "  Instalado en /Applications/SFPoint.app"
 
 # LaunchServices cachea el icono por ruta de bundle. Como arriba se hace

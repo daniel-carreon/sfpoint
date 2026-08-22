@@ -164,6 +164,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let url = Bundle.main.url(forResource: "logo_small", withExtension: "png"),
            let img = NSImage(contentsOf: url) {
             img.size = NSSize(width: 18, height: 18)
+            // Template: el arte va en negro solido y macOS lo tiñe segun el tema
+            // de la barra (claro/oscuro). Sin esto se ve un cuadro negro en
+            // modo claro y un borron en modo oscuro.
+            img.isTemplate = true
             return img
         }
         let size: CGFloat = 18

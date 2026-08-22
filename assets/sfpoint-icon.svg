@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Fondo: grafito de marca, no negro puro -->
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#1C1B22"/>
+      <stop offset="100%" stop-color="#0E0D12"/>
+    </linearGradient>
+
+    <!-- El punto: nucleo blanco-calido → ambar → desvanecido.
+         Mismas paradas que el renderer real de la app. -->
+    <radialGradient id="dot" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="#FFFADC" stop-opacity="1"/>
+      <stop offset="6%"   stop-color="#FFDC8C" stop-opacity="0.94"/>
+      <stop offset="10%"  stop-color="#F59E0B" stop-opacity="0.82"/>
+      <stop offset="14%"  stop-color="#F59E0B" stop-opacity="0.63"/>
+      <stop offset="24%"  stop-color="#F59E0B" stop-opacity="0.24"/>
+      <stop offset="40%"  stop-color="#F59E0B" stop-opacity="0.10"/>
+      <stop offset="56%"  stop-color="#F59E0B" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- La estela se desvanece hacia atras, como en la app -->
+    <linearGradient id="trail" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#F59E0B" stop-opacity="0"/>
+      <stop offset="55%"  stop-color="#F59E0B" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#FFD98A" stop-opacity="1"/>
+    </linearGradient>
+    <linearGradient id="trailGlow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#F59E0B" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0.30"/>
+    </linearGradient>
+
+    <!-- El morado firma la marca sin competir con el laser -->
+    <radialGradient id="ripple" cx="50%" cy="50%" r="50%">
+      <stop offset="60%"  stop-color="#8C27F1" stop-opacity="0"/>
+      <stop offset="88%"  stop-color="#8C27F1" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#8C27F1" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Lienzo con el radio de esquina de macOS -->
+  <rect width="1024" height="1024" rx="228" ry="228" fill="url(#bg)"/>
+
+  <!-- Onda de clic: el color contrario, abajo a la izquierda -->
+  <circle cx="318" cy="716" r="132" fill="url(#ripple)"/>
+  <circle cx="318" cy="716" r="116" fill="none" stroke="#8C27F1" stroke-opacity="0.85" stroke-width="12"/>
+
+  <!-- Estela: glow ancho + nucleo, curva ascendente -->
+  <path d="M 210 620 Q 400 600 520 494 T 700 396"
+        fill="none" stroke="url(#trailGlow)" stroke-width="86" stroke-linecap="round"/>
+  <path d="M 210 620 Q 400 600 520 494 T 700 396"
+        fill="none" stroke="url(#trail)" stroke-width="28" stroke-linecap="round"/>
+
+  <!-- El punto laser: bloom grande + nucleo caliente -->
+  <circle cx="700" cy="396" r="300" fill="url(#dot)"/>
+  <circle cx="700" cy="396" r="30" fill="#FFF6D5"/>
+</svg>

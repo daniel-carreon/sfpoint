@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Template: TODO en negro solido. macOS lo tiñe segun el tema de la barra. -->
+  <path d="M 8 46 Q 22 44 32 34 T 48 24" fill="none" stroke="#000"
+        stroke-width="5" stroke-linecap="round" stroke-opacity="0.45"/>
+  <circle cx="48" cy="24" r="11" fill="none" stroke="#000" stroke-width="3" stroke-opacity="0.35"/>
+  <circle cx="48" cy="24" r="6.5" fill="#000"/>
+</svg>

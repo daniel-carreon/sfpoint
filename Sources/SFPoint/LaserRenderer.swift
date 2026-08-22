@@ -5,6 +5,10 @@ import AppKit
 /// conservaron para que el resultado sea visualmente identico.
 enum LaserRenderer {
 
+    /// Tope de la estela: redondeado por defecto, `butt` para el look original.
+    static let trailCap: CGLineCap =
+        (ProcessInfo.processInfo.environment["SFPOINT_TRAIL_CAP"] == "butt") ? .butt : .round
+
     // MARK: - Laser (estela + punto con bloom)
 
     static func drawLaser(in ctx: CGContext, pos: CGPoint?, trail: [CGPoint], color: NSColor) {
@@ -13,7 +17,12 @@ enum LaserRenderer {
         let n = trail.count
 
         if n >= 2 {
-            ctx.setLineCap(.butt)
+            // Tope de la estela. `.butt` es lo que hacia la version Python
+            // (FlatCap): cada segmento termina plano y, como el ancho crece
+            // segmento a segmento, se ven escalones. `.round` los cose y la
+            // estela se lee continua. Se cambia con SFPOINT_TRAIL_CAP=butt.
+            ctx.setLineCap(LaserRenderer.trailCap)
+            ctx.setLineJoin(.round)
 
             // Pasada 1: glow ancho y suave por debajo (el sangrado de neon)
             strokeTrail(ctx, trail, n) { t in

@@ -45,6 +45,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         FileHandle.standardError.write(
             "SFPoint running — ⌥P cicla: apagado → ambar → morado. Esc apaga.\n".data(using: .utf8)!)
+
+        // --demo <segundos> [--color ambar|morado]: enciende el laser sin
+        // depender del atajo, para poder verificarlo cuando TCC no coopera
+        // (o simplemente para ver si dibuja, sin tocar el teclado).
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--demo") {
+            let secs = (i + 1 < args.count) ? (Double(args[i+1]) ?? 5.0) : 5.0
+            var st: Config.LaserState = .ambar
+            if let c = args.firstIndex(of: "--color"), c + 1 < args.count, args[c+1] == "morado" {
+                st = .morado
+            }
+            controller.setState(st)
+            FileHandle.standardError.write(
+                "DEMO: laser \(st.label) por \(secs)s\n".data(using: .utf8)!)
+            DispatchQueue.main.asyncAfter(deadline: .now() + secs) { [weak self] in
+                self?.controller.setState(.off)
+                NSApp.terminate(nil)
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

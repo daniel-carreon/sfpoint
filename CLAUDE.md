@@ -1,118 +1,85 @@
 # CLAUDE.md — SFPoint
 
-> For AI agents. SFPoint v2.0 is a **laser pointer and nothing else**.
-> If you are about to add a tool, a toolbar or a settings panel: don't. They were
-> all deleted on purpose (v1.0 had them, they went unused, and every one of them
-> was surface that could break).
+> Para agentes IA. SFPoint v3 es un **puntero laser y nada mas**.
+> Si estas a punto de agregar una herramienta, una barra o un panel de ajustes:
+> no lo hagas. Todo eso se borro a proposito (v1 los tenia, nadie los uso, y
+> cada uno era superficie que podia romperse).
 
-## What SFPoint is
+## Que es SFPoint
 
-A macOS menu bar app that draws a neon laser dot over everything.
-`⌥P` cycles `off → ambar → morado → off`. `Esc` turns it off. That is the whole
-product surface.
+Una app de barra de menu de macOS que dibuja un punto laser de neon sobre todo.
+`⌥P` cicla `apagado → ambar → morado → apagado`. `Esc` lo apaga.
+Esa es toda la superficie del producto.
 
-- Overlay is **always click-through** (`setIgnoresMouseEvents_(True)`), never
-  steals focus (`NSWindowStyleMaskNonactivatingPanel`), one window per screen.
-- Colors: ambar `#F59E0B`, morado `#8C27F1`. The click ripple is always the
-  opposite color of the active laser.
+- El overlay es **siempre click-through** (`ignoresMouseEvents = true`), jamas roba
+  el foco (`.nonactivatingPanel`), una ventana por pantalla.
+- Colores: ambar `#F59E0B`, morado `#8C27F1`. El ripple del clic es siempre el
+  color contrario al laser activo.
 
-## Commands
+## v3 — Swift nativo (ago 2026)
 
-```bash
-bash build.sh              # build into dist/
-bash build.sh --install    # build + replace /Applications/SFPoint.app + launch
-./venv/bin/python main.py  # dev mode
-```
+**La app era Python + PyQt6 + pynput. Ahora es Swift puro.** Misma app, mismo
+aspecto, sin runtime interpretado.
 
-`build.sh` creates the venv on first run. Python 3.12+ (3.13 preferred).
+| | v2 (Python) | v3 (Swift) |
+|---|---|---|
+| Peso | ~50 MB con PyQt | **244 KB** (1.4 MB con icono) |
+| Dependencias | venv + 4 paquetes | **ninguna** |
+| Overlay | QWidget + puente objc | `NSPanel` nativo |
+| Atajo | pynput | `CGEventTap` propio |
+| Dibujo | QPainter | Core Graphics |
 
-## THE bug to never reintroduce: silent permission death
+**El render se tradujo 1:1**, no se re-diseño: mismas 9 paradas del gradiente
+radial, mismas 3 pasadas de estela, mismas 4 capas del ripple, mismas constantes.
+Verificado contra el motor Python pixel a pixel: **93% de pixeles identicos,
+diferencia media 0.12/255, cero pixeles con delta perceptible**.
 
-`⌥P` is a **listen-only CGEventTap** (pynput), gated by macOS behind
-`kTCCServiceListenEvent` = *Privacy & Security > Input Monitoring*.
+Lo unico que cambio a proposito: el **tope de la estela** pasó de plano
+(`.butt`, que dejaba escalones visibles entre segmentos) a redondeado
+(`.round`). Volver al original: `SFPOINT_TRAIL_CAP=butt`.
 
-macOS binds that grant to the app's **code signature**. Ad-hoc signing
-(`codesign --sign -`) has no stable identity, so the grant is pinned to the exact
-cdhash. Any rebuild → new hash → the stored requirement stops matching → **the
-tap is denied with zero errors** while System Settings still lists the app as
-enabled. Symptom: the app opens, the icon is there, and no shortcut does
-anything.
-
-Ground truth is in the log, not in System Settings:
-
-```bash
-/usr/bin/log show --last 30m --predicate 'subsystem == "com.apple.TCC"' \
-  --style compact | grep -i sfpoint
-# Failed to match existing code requirement for subject
-# so.saasfactory.sfpoint and service kTCCServiceListenEvent
-```
-
-Three defenses are in place. Keep all three:
-
-1. **Stable signing identity** (`build.sh`): signs with `$SIGN_ID`
-   (default `SFlow Dev`, a self-signed Code Signing cert in the login keychain).
-   With a certificate the designated requirement is identifier + cert hash, so
-   the grant survives rebuilds. The script warns loudly if it falls back to ad-hoc.
-2. **Preflight + visible feedback** (`core/permissions.py`, `main.py`):
-   `CGPreflightListenEventAccess` on launch, then `CGRequestListenEventAccess`.
-   If still denied, the app SAYS SO (dialog + permanent menu item + the exact
-   `tccutil reset` command). It must never fail quietly again.
-3. **Fallback control surface** (`main.py` tray menu): the laser can be driven
-   entirely from the menu bar. Cursor tracking uses `QCursor.pos()`, which needs
-   no permission, so the laser still works when the hotkey is dead.
-
-A watchdog (2s) re-checks the permission and restarts the pynput listener the
-moment it is granted, so no relaunch is needed after approving.
-
-Repair command when a record goes stale:
+## Comandos
 
 ```bash
-tccutil reset ListenEvent so.saasfactory.sfpoint
+bash scripts/build-app.sh              # compila + firma → dist/SFPoint.app
+bash scripts/install.sh                # build + instala en /Applications + lanza
+swift build -c release                 # solo compilar
+
+# verificacion sin abrir la app
+./.build/release/SFPoint --selftest /tmp/out.png --color ambar
+./.build/release/SFPoint --demo 10 --color morado   # enciende el laser 10s
 ```
 
-## Other invariants
+## Invariantes que NO se pueden romper
 
-- **`ditto`, never `cp -r`** when installing the bundle. `cp -r` corrupts bundle
-  metadata and the app segfaults. `build.sh --install` does it right.
-- **Balanced cursor hiding.** `CGDisplayHideCursor` increments a system-wide
-  counter; it must be undone exactly. `ui/canvas.py` counts every hide and
-  releases them all in `_restore_cursor()`, called on laser-off AND on quit.
-  Leaking them leaves the user with no cursor at all, unrecoverably.
-  (v1.0 called show 500 times and hoped. Don't go back to that.)
-- **Qt threading.** pynput listeners run on their own threads. Every signal into
-  Qt uses `Qt.ConnectionType.QueuedConnection`.
-- **Efficiency contract.** Laser off = overlays hidden, no timers, no listeners.
-  Laser on = one 60fps timer that repaints only the dirty rect (bounding box of
-  dot + trail + ripples, unioned with the previous frame's). Never repaint a
-  fullscreen overlay every frame.
-- **Dock icon.** `LSUIElement` + `NSApplicationActivationPolicyAccessory`, set
-  after the tray exists.
-- **Bundle vs dev.** `config.py` reads `sys.frozen`; assets come from
-  `sys._MEIPASS` in the bundle. There is no settings file anymore.
+1. **Firma `SFlow Dev`, jamas ad-hoc.** Ad-hoc cambia el cdhash en cada rebuild
+   y macOS revoca Monitorizacion de entrada — que es EXACTAMENTE el permiso del
+   que depende ⌥P. Una app firmada ad-hoc se ve viva y queda sorda sin avisar.
+   El gate de `build-app.sh` aborta si el cert no existe.
+2. **El cursor se oculta y se restaura BALANCEADO.** `LaserController` cuenta
+   cada `CGDisplayHideCursor` y los deshace todos al apagar. Un contador
+   desbalanceado deja al usuario sin cursor en TODO el sistema, sin recuperacion
+   salvo reiniciar. `shutdown()` se llama siempre antes de salir.
+3. **El tap es `.listenOnly`.** Nunca se traga la tecla: ⌥P sigue llegando a la
+   app que este al frente.
+4. **El tap se revive solo.** Si macOS lo deshabilita por timeout, `handle()` lo
+   vuelve a habilitar — un tap apagado se ve identico a uno vivo.
+5. **Solo se repinta el rectangulo sucio.** Apagado: cero timers, cero
+   listeners, ~0% CPU. Encendido: un timer a 60fps sobre la region sucia.
 
-## Layout
+## Estructura
 
 ```
-main.py               tray icon + state machine + permission watchdog
-config.py             colors, geometry, the one shortcut
-core/hotkey.py        ⌥P (vk 35, or "π" on the macOS layout) + Esc
-core/laser.py         renderer: bloom dot, 3-pass trail, ripple
-core/permissions.py   Input Monitoring preflight / request / repair
-ui/canvas.py          per-screen overlays, frame loop, cursor, dirty rects
-build.sh              icon → venv → PyInstaller → sign → install
-sfpoint.spec          PyInstaller config
+Sources/SFPoint/
+  Config.swift          constantes (colores, geometria, estados)
+  LaserRenderer.swift   dibujo puro: estela + punto + ripple
+  LaserOverlay.swift    NSPanel + NSView por pantalla
+  LaserController.swift estado, trail, ripples, timer, cursor
+  Hotkey.swift          CGEventTap + permisos TCC
+  AppDelegate.swift     barra de menu, ciclo de vida, watchdog de permisos
+  SelfTest.swift        render headless a PNG con metricas
+  main.swift            entry point
 ```
 
-Deleted in v2.0 (recover from git history if ever needed, but read the top of
-this file first): `core/drawing.py`, `ui/toolbar.py`, `ui/settings.py`.
-
-## Troubleshooting
-
-| Problem | Cause / fix |
-|---------|-------------|
-| `⌥P` does nothing, app is running | Input Monitoring denied. Check the TCC log above, then `tccutil reset ListenEvent so.saasfactory.sfpoint` and restart |
-| Worked before, broke after a rebuild | Ad-hoc signature. Rebuild with `SIGN_ID` set to a real identity |
-| Cursor disappeared and won't come back | Unbalanced `CGDisplayHideCursor`. Quit SFPoint (it releases on quit); the bug is in `_restore_cursor()` |
-| Laser lags or trails smear | Dirty-rect math in `_dirty_global()` is too tight; widen `LASER_PAD` / `RIPPLE_PAD` in `core/laser.py` |
-| App segfaults after install | Installed with `cp -r`. Reinstall with `ditto` |
-| App blocked by macOS | `xattr -cr /Applications/SFPoint.app` |
+La version Python vive en la rama `main` como historico. `CLAUDE-python-v2.md.bak`
+guarda su documentacion.

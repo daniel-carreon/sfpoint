@@ -23,7 +23,11 @@ fi
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/SFPoint "$APP/Contents/MacOS/SFPoint"
 cp Info.plist "$APP/Contents/Info.plist"
-[ -f logo_small.png ] && cp logo_small.png "$APP/Contents/Resources/logo_small.png"
+# El glifo de la barra de menu va como SVG: NSImage lo rasteriza vectorial a
+# la escala de cada pantalla, asi que no hay PNG que se vea borroso ni que se
+# desincronice del arte. logo_small.png quedo fuera a proposito: era el app
+# icon completo y su silueta es un cuadrado (ver AppDelegate.logoIcon).
+[ -f assets/menubar.svg ] && cp assets/menubar.svg "$APP/Contents/Resources/menubar.svg"
 [ -f assets/SFPoint.icns ] && cp assets/SFPoint.icns "$APP/Contents/Resources/SFPoint.icns"
 
 echo "[3/4] Firmando"

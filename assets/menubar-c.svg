@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36">
+  <!-- C = el concepto de A ocupando mas cuadro: anillo y punta mas grandes,
+       estela solida. Es la que mas se parece al app icon a este tamano. -->
+  <path d="M 15.5 22 Q 20.5 19.5 23 14" fill="none" stroke="#ff9101"
+        stroke-width="3" stroke-linecap="round"/>
+  <circle cx="10.5" cy="25.5" r="6.8" fill="none" stroke="#8C27F1" stroke-width="3.4"/>
+  <circle cx="26.5" cy="10.5" r="5.4" fill="#ff9101"/>
+</svg>

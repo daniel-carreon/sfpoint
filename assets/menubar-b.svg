@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36">
+  <!-- SFPoint · glifo de barra de menu — variante B: maxima legibilidad.
+       Estela morada gruesa + punta ambar grande. Dos formas, cero detalle fino. -->
+  <path d="M 7 29 Q 15 26 21 16" fill="none" stroke="#8C27F1"
+        stroke-width="4" stroke-linecap="round"/>
+  <circle cx="24.5" cy="11.5" r="6.5" fill="#ff9101"/>
+</svg>

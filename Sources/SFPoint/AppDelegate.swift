@@ -161,13 +161,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Icono en reposo: si hay logo horneado en el bundle se usa; si no, un
     /// punto de plantilla que se adapta al tema claro/oscuro de la barra.
     private static func logoIcon() -> NSImage {
-        if let url = Bundle.main.url(forResource: "logo_small", withExtension: "png"),
+        if let url = Bundle.main.url(forResource: "menubar", withExtension: "svg"),
            let img = NSImage(contentsOf: url) {
             img.size = NSSize(width: 18, height: 18)
-            // Template: el arte va en negro solido y macOS lo tiñe segun el tema
-            // de la barra (claro/oscuro). Sin esto se ve un cuadro negro en
-            // modo claro y un borron en modo oscuro.
-            img.isTemplate = true
+            // NO es template. Una template image descarta el color y pinta solo
+            // la silueta del canal alpha; el arte anterior era el app icon, cuyo
+            // alpha es un cuadrado 100% opaco, y por eso la barra mostraba un
+            // cuadro blanco solido. El glifo va a color como en SFCast y SFlow.
+            img.isTemplate = false
             return img
         }
         let size: CGFloat = 18

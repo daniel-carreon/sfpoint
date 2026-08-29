@@ -105,7 +105,7 @@ vuelve a portar; aqui no se le mete mano a ojo.
 | `P` o `L` · `M` · `E` | lapiz · marcador (translucido) · goma |
 | `1..5` | morado · ambar · blanco · negro · rojo |
 | `[` `]` · rueda · dial de la tableta | grosor (escalera propia por instrumento) |
-| `⌘Z` / `⇧⌘Z` | deshacer / rehacer |
+| `⌘Z` / `⇧⌘Z` | deshacer / rehacer (los dos también en la paleta) |
 | `C` o `⌫` | limpiar |
 | `H` | esconder/mostrar la paleta (para grabar sin ella en cuadro) |
 | boton derecho | borra sin cambiar de herramienta |
@@ -113,9 +113,13 @@ vuelve a portar; aqui no se le mete mano a ojo.
 
 ### Decisiones que NO se cambian sin leer esto
 
-1. **La tinta vive en coordenadas GLOBALES de escritorio**, como el laser. Un
-   trazo que cruza de un monitor a otro no se parte: cada panel traslada por su
-   origen y pinta la parte que le toca.
+1. **UNA SOLA PANTALLA, la del cursor al entrar** (firmado por Daniel el 29 ago:
+   *"si funciona en una pantalla, solo sea en una, no en las 2; el foco no
+   tenderá a ser en ambas"*). Capturar el raton en los dos monitores convierte el
+   segundo —donde vive el guion, el chat o el codigo que vas a anotar— en una
+   superficie muerta. Para mudarla: salir, pasar el cursor, volver a entrar.
+   La tinta igual vive en coordenadas GLOBALES de escritorio, como el laser: es
+   lo que deja que la ventana se mude de monitor sin tocar el modelo.
 2. **El contorno se cachea en el `Trazo`**, no en un mapa con claves. sfmap si
    tiene una `CacheTinta` porque sus trazos se mueven dentro de un documento;
    aqui un trazo se dibuja, se borra entero o se limpia la pizarra. Portar esa
@@ -144,7 +148,11 @@ vuelve a portar; aqui no se le mete mano a ojo.
    barra hecha a mano. Se arrastra por el asa y recuerda donde la dejaste.
 9. **El HUD calla cuando la paleta esta a la vista.** Con las dos, el mismo dato
    aparecia dos veces y el acuse pasaba a ruido. Solo habla si escondes la paleta.
-10. **La muestra de calibre es un DISCO del diametro real**, no un numero: la
+10. **Cada boton de la paleta lleva su ROTULO nativo con el atajo.** Nacio de
+   Daniel preguntando *"¿que hace el copo de nieve?"*: un icono que hay que
+   preguntar no comunica, y ninguno tiene hueco para una palabra. El rotulo dice
+   el nombre Y la tecla, que es como se aprende a dejar de usar la barra.
+11. **La muestra de calibre es un DISCO del diametro real**, no un numero: la
    misma verdad que el disco de la goma en el lienzo. Y el marcador se pinta
    sobre un chip claro, porque su translucidez sobre el grafito de la barra se
    veia marron y mentia sobre el color que pinta.

@@ -67,6 +67,17 @@ final class PizarraController {
     /// Solo para la verificación de humo: las ventanas reales, para poder
     /// preguntarles si de verdad están en pantalla y si tienen el teclado.
     var ventanasParaPrueba: [PizarraOverlayWindow] { ventanas }
+    /// La pantalla donde se abrió la pizarra. **UNA sola, no todas.**
+    ///
+    /// Daniel: *"si funciona en una pantalla, solo sea en una, no en las 2; el
+    /// foco no tenderá a ser en ambas"*. Y tiene razón operativa: capturar el
+    /// ratón en los dos monitores convierte el segundo —donde estás leyendo el
+    /// guion, el chat o el código que vas a anotar— en una superficie muerta.
+    /// Se anota en la pantalla que estás mirando; la otra sigue siendo tuya.
+    ///
+    /// Se elige por dónde está el cursor AL ENTRAR. Para moverla a la otra
+    /// pantalla: sales (⌥L), pasas el cursor y vuelves a entrar.
+    private(set) var pantallaActiva: NSScreen?
     private var ventanas: [PizarraOverlayWindow] = []
     private let hud = HUDPizarra()
     let paleta = PaletaPizarra()
@@ -109,7 +120,9 @@ final class PizarraController {
 
     func entrar() {
         soltarGesto()
-        if ventanas.isEmpty { construirVentanas() }
+        let quiero = pantallaDelCursor()
+        // Si cambió la pantalla bajo el cursor, la ventana se muda con él.
+        if ventanas.isEmpty || pantallaActiva !== quiero { construirVentanas(en: quiero) }
         modo = .dibujando
         for v in ventanas {
             v.capturaTeclado = true
@@ -152,15 +165,24 @@ final class PizarraController {
         onModoChange?(modo)
     }
 
-    private func construirVentanas() {
-        ventanas = NSScreen.screens.map { PizarraOverlayWindow(screen: $0, controller: self) }
+    private func pantallaDelCursor() -> NSScreen? {
+        let p = NSEvent.mouseLocation
+        return NSScreen.screens.first { $0.frame.contains(p) } ?? NSScreen.main
+    }
+
+    private func construirVentanas(en pantalla: NSScreen?) {
+        ventanas.forEach { $0.orderOut(nil) }
+        ventanas.removeAll()
+        guard let pantalla else { return }
+        pantallaActiva = pantalla
+        ventanas = [PizarraOverlayWindow(screen: pantalla, controller: self)]
     }
 
     private func rehacerVentanas() {
         let estaba = modo
-        ventanas.forEach { $0.orderOut(nil) }
-        ventanas.removeAll()
-        construirVentanas()
+        // Si desconectaron la pantalla donde vivía, se va a la del cursor.
+        let sigue = pantallaActiva.flatMap { p in NSScreen.screens.first { $0 === p } }
+        construirVentanas(en: sigue ?? pantallaDelCursor())
         switch estaba {
         case .apagado:   break
         case .dibujando: entrar()
@@ -317,8 +339,7 @@ final class PizarraController {
         if e.modifierFlags.contains(.option) { return true }
 
         if cmd, c == "z" {
-            shift ? pizarra.rehacer() : pizarra.deshacer()
-            repintarTodo()
+            shift ? rehacer() : deshacer()
             avisar(shift ? "Rehacer" : "Deshacer")
             return true
         }
@@ -388,6 +409,12 @@ final class PizarraController {
 
     func deshacer() {
         pizarra.deshacer()
+        repintarTodo()
+        paleta.refrescar()
+    }
+
+    func rehacer() {
+        pizarra.rehacer()
         repintarTodo()
         paleta.refrescar()
     }

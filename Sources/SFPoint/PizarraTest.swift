@@ -306,8 +306,14 @@ extension PizarraTest {
         ctrl.paleta.mostrar(en: NSScreen.screens.first)
 
         let ventanas = ctrl.ventanasParaPrueba
-        check("hay un panel por pantalla", ventanas.count == NSScreen.screens.count,
-              "\(ventanas.count) paneles / \(NSScreen.screens.count) pantallas")
+        check("UN solo panel, no uno por pantalla", ventanas.count == 1,
+              "\(ventanas.count) paneles con \(NSScreen.screens.count) pantallas")
+        let bajoCursor = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
+                         ?? NSScreen.main
+        check("y es la pantalla donde está el cursor", ventanas.first?.screen === bajoCursor)
+        check("la otra pantalla queda LIBRE",
+              !NSScreen.screens.contains { p in p !== bajoCursor
+                  && ventanas.contains { $0.screen === p } })
         check("los paneles están en pantalla", ventanas.allSatisfy(\.isVisible))
         check("los paneles capturan el ratón", ventanas.allSatisfy { !$0.ignoresMouseEvents })
         check("el panel puede tomar el teclado", ventanas.allSatisfy(\.canBecomeKey))

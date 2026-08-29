@@ -52,6 +52,8 @@ final class PaletaPizarra {
         vista.frame = NSRect(origin: .zero, size: tamano)
         vista.paleta = self
         p.contentView = vista
+        p.acceptsMouseMovedEvents = true    // sin esto los rótulos no aparecen
+        vista.recolocarRotulos()
         return p
     }
 
@@ -109,7 +111,7 @@ final class PaletaPizarra {
 // ════════════════════════════════════════════════════════════════════════════
 
 @MainActor
-final class PaletaVista: NSView {
+final class PaletaVista: NSView, NSViewToolTipOwner {
 
     weak var ctrl: PizarraController?
     weak var paleta: PaletaPizarra?
@@ -122,7 +124,7 @@ final class PaletaVista: NSView {
         case instrumento(Instrumento)
         case color(TintaColor)
         case masGrosor, menosGrosor
-        case deshacer, limpiar, congelar, salir
+        case deshacer, rehacer, limpiar, congelar, salir
     }
     private struct Zona { let r: CGRect; let a: Accion }
 
@@ -168,7 +170,7 @@ final class PaletaVista: NSView {
         z.append(Zona(r: CGRect(x: x, y: y, width: 26, height: botón), a: .masGrosor))
         x += 26 + sep
 
-        for a in [Accion.deshacer, .limpiar, .congelar, .salir] {
+        for a in [Accion.deshacer, .rehacer, .limpiar, .congelar, .salir] {
             z.append(Zona(r: CGRect(x: x, y: y, width: botón, height: botón), a: a))
             x += botón + 2
         }
@@ -246,6 +248,10 @@ final class PaletaVista: NSView {
                 pintarBoton(zona.r, activo: false, en: ctx)
                 icono("arrow.uturn.backward", zona.r,
                       NSColor(white: ctrl.pizarra.puedeDeshacer ? 0.78 : 0.34, alpha: 1), ctx)
+            case .rehacer:
+                pintarBoton(zona.r, activo: false, en: ctx)
+                icono("arrow.uturn.forward", zona.r,
+                      NSColor(white: ctrl.pizarra.puedeRehacer ? 0.78 : 0.34, alpha: 1), ctx)
             case .limpiar:
                 pintarBoton(zona.r, activo: false, en: ctx)
                 icono("trash", zona.r,
@@ -360,6 +366,8 @@ final class PaletaVista: NSView {
             ctrl.moverGrosor(pasos: 1)
         case .deshacer:
             ctrl.deshacer()
+        case .rehacer:
+            ctrl.rehacer()
         case .limpiar:
             ctrl.limpiar()
         case .congelar:
@@ -388,5 +396,54 @@ final class PaletaVista: NSView {
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .arrow)
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // MARK: los rótulos
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Daniel, viendo la paleta por primera vez: *"¿qué hace el copo de nieve?"*.
+     * Un icono que hay que preguntar no comunica, y aquí ningún botón tiene
+     * hueco para una palabra. Los rótulos nativos de macOS resuelven las dos
+     * cosas: la barra sigue del mismo tamaño y cada botón dice su nombre Y SU
+     * ATAJO, que es como se aprende a dejar de usar la barra.
+     */
+    private func rotulo(_ a: Accion) -> String {
+        switch a {
+        case .asa:                    return "Arrástrala para moverla · H la esconde"
+        case .instrumento(.lapiz):    return "Lápiz  (P)"
+        case .instrumento(.marcador): return "Marcador translúcido  (M)"
+        case .instrumento(.goma):     return "Goma  (E)  ·  o voltea la pluma"
+        case .color(let c):           return "\(c.nombre)  (\((TintaColor.allCases.firstIndex(of: c) ?? 0) + 1))"
+        case .menosGrosor:            return "Más delgado  ( [ )"
+        case .masGrosor:              return "Más grueso  ( ] )"
+        case .deshacer:               return "Deshacer  (⌘Z)"
+        case .rehacer:                return "Rehacer  (⇧⌘Z)"
+        case .limpiar:                return "Limpiar la pizarra  (C)"
+        case .congelar:               return "Congelar la tinta  (⌥⇧L)  ·  la deja fija y te devuelve el clic a las apps de abajo"
+        case .salir:                  return "Salir y limpiar  (⌥L o Esc)"
+        }
+    }
+
+    /// Se rehacen con la geometría, no una sola vez: si cambian los botones,
+    /// cambian los rótulos, y no puede quedar uno apuntando al sitio de antes.
+    func recolocarRotulos() {
+        removeAllToolTips()
+        for zona in zonas(ancho: bounds.width).lista {
+            addToolTip(zona.r, owner: self, userData: nil)
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        recolocarRotulos()
+    }
+
+    func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag,
+              point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
+        guard let zona = zonas(ancho: bounds.width).lista.first(where: { $0.r.contains(point) })
+        else { return "" }
+        return rotulo(zona.a)
     }
 }

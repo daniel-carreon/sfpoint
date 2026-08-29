@@ -31,7 +31,10 @@ pressure and tilt from a drawing tablet, erase with a separate eraser (or just
 flip the pen), and `⌥⇧L` freezes the ink so you can keep using the app underneath
 with your annotation on top.
 
-That is the entire app. No toolbar, no settings panel, no modes to learn. It
+A small floating palette shows what you are holding (tool, color, size) and can
+be dragged anywhere, hidden with `H`, and ignored entirely if you prefer keys.
+
+That is the entire app. No settings panel, no preferences, no modes to learn. It
 lives in the menu bar, never steals focus, and the laser never blocks a click.
 
 The ink engine is ported verbatim from **sfmap**, where it was calibrated against

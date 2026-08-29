@@ -299,8 +299,11 @@ extension PizarraTest {
         }
 
         let ctrl = PizarraController()
-        ctrl.silencioso = true
+        ctrl.silencioso = true          // sin HUD encima de la pantalla de Daniel
         ctrl.entrar()
+        // La paleta sí se comprueba, pero fuera de su vista: se muestra en la
+        // esquina inferior de la pantalla y se retira en menos de un segundo.
+        ctrl.paleta.mostrar(en: NSScreen.screens.first)
 
         let ventanas = ctrl.ventanasParaPrueba
         check("hay un panel por pantalla", ventanas.count == NSScreen.screens.count,
@@ -319,6 +322,7 @@ extension PizarraTest {
             return 1
         }
         let vista = win.vista
+        check("la paleta salió con el modo", ctrl.paleta.estaVisible)
         check("la vista acepta ser primer respondedor", vista.acceptsFirstResponder)
         check("la vista tiene área de seguimiento", !vista.trackingAreas.isEmpty)
 
@@ -402,6 +406,7 @@ extension PizarraTest {
         ctrl.salir()
         check("al salir no queda tinta ni ventanas visibles",
               ctrl.pizarra.estaVacia && !ventanas.contains(where: \.isVisible))
+        check("y la paleta se fue con él", !ctrl.paleta.estaVisible)
         check("la fusión de eventos sigue restaurada", NSEvent.isMouseCoalescingEnabled)
 
         print("")
@@ -430,5 +435,63 @@ extension PizarraTest {
         var n = 0.0
         for i in 0..<(w * h) { n += Double(buf[i]) / 255 }
         return n
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// MARK: la paleta, a PNG
+// ════════════════════════════════════════════════════════════════════════════
+
+extension PizarraTest {
+
+    /// Render de la paleta a PNG, sin abrirla en pantalla. Una barra se juzga
+    /// mirándola: "compila" no es "se lee de un vistazo".
+    @MainActor
+    static func paletaPNG(_ salida: String) -> Int32 {
+        let ctrl = PizarraController()
+        ctrl.silencioso = true
+        let vista = PaletaVista()
+        vista.ctrl = ctrl
+        vista.frame = NSRect(origin: .zero, size: vista.tamanoNatural)
+
+        // Tres estados en una hoja: lápiz morado fino, marcador ámbar gordo y
+        // goma. Es donde se ve si la muestra de calibre y el activo se leen.
+        let estados: [(String, () -> Void)] = [
+            ("lápiz", { ctrl.elegir(.lapiz); ctrl.elegir(.morado) }),
+            ("marcador", { ctrl.elegir(.marcador); ctrl.elegir(.ambar)
+                           ctrl.elegir(.marcador); ctrl.moverGrosor(pasos: 2) }),
+            ("goma", { ctrl.elegir(.goma) }),
+        ]
+
+        let w = Int(vista.bounds.width) + 40
+        let h = (Int(vista.bounds.height) + 22) * estados.count + 22
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
+                                  bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return 1 }
+        // Fondo a media luz: la paleta vive sobre pantallas ajenas, no sobre
+        // blanco ni sobre negro.
+        ctx.setFillColor(CGColor(srgbRed: 0.33, green: 0.31, blue: 0.38, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+
+        var y = h - Int(vista.bounds.height) - 22
+        for (nombre, poner) in estados {
+            poner()
+            guard let rep = vista.bitmapImageRepForCachingDisplay(in: vista.bounds) else { continue }
+            vista.cacheDisplay(in: vista.bounds, to: rep)
+            if let img = rep.cgImage {
+                ctx.draw(img, in: CGRect(x: 20, y: CGFloat(y), width: vista.bounds.width,
+                                         height: vista.bounds.height))
+            }
+            print("  \(nombre): \(Int(vista.bounds.width))x\(Int(vista.bounds.height))")
+            y -= Int(vista.bounds.height) + 22
+        }
+
+        guard let img = ctx.makeImage(),
+              let png = NSBitmapImageRep(cgImage: img).representation(using: .png, properties: [:])
+        else { return 1 }
+        try? png.write(to: URL(fileURLWithPath: salida))
+        print("paleta → \(salida)")
+        return 0
     }
 }

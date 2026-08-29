@@ -35,7 +35,13 @@ final class PizarraController {
     ]
 
     /// La pluma volteada manda sobre la herramienta elegida, mientras dure.
-    var plumaVolteada = false { didSet { if plumaVolteada != oldValue { repintarPunteroYAviso() } } }
+    var plumaVolteada = false {
+        didSet {
+            guard plumaVolteada != oldValue else { return }
+            repintarPunteroYAviso()
+            paleta.refrescar()   // voltear la pluma se VE en la paleta
+        }
+    }
 
     var instrumentoEfectivo: Instrumento { plumaVolteada ? .goma : instrumento }
     var grosorGoma: Double { grosores[.goma] ?? 28 }
@@ -63,12 +69,14 @@ final class PizarraController {
     var ventanasParaPrueba: [PizarraOverlayWindow] { ventanas }
     private var ventanas: [PizarraOverlayWindow] = []
     private let hud = HUDPizarra()
+    let paleta = PaletaPizarra()
     /// El humo de verificación no puede pintar avisos en la pantalla de Daniel.
     var silencioso = false
 
     var onModoChange: ((Modo) -> Void)?
 
     init() {
+        paleta.ctrl = self
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main
@@ -111,6 +119,7 @@ final class PizarraController {
         }
         // El teclado va a la pantalla donde está la mano.
         ventanaBajoElPuntero()?.makeKey()
+        if !silencioso { paleta.mostrar(en: ventanaBajoElPuntero()?.screen) }
         avisar("\(instrumentoEfectivo.nombre) · \(color.nombre) · \(Int(grosorActual))")
         onModoChange?(modo)
     }
@@ -124,6 +133,9 @@ final class PizarraController {
             v.orderFrontRegardless()
             v.repintarTodo()
         }
+        // La paleta se queda: desde ella se vuelve a dibujar de un clic, sin
+        // tener que acordarse del atajo.
+        paleta.refrescar()
         avisar("Tinta congelada · ⌥L para seguir dibujando")
         onModoChange?(modo)
     }
@@ -135,6 +147,7 @@ final class PizarraController {
         punteroGlobal = nil
         plumaVolteada = false
         hud.ocultar()
+        paleta.ocultar()
         for v in ventanas { v.capturaTeclado = false; v.orderOut(nil) }
         onModoChange?(modo)
     }
@@ -215,6 +228,7 @@ final class PizarraController {
                           grosor: grosorActual, marcador: instrumento == .marcador)
             pizarra.agregar(t)
             repintar(t.caja)
+            paleta.refrescar()   // deshacer y limpiar ya tienen de dónde tirar
         }
         soltarGesto()
     }
@@ -278,6 +292,7 @@ final class PizarraController {
         if pizarra.quitar(tocados) {
             borroAlgo = true
             repintar(zona)
+            paleta.refrescar()
         }
     }
 
@@ -315,6 +330,9 @@ final class PizarraController {
         case "e":      elegir(.goma);     return true
         case "c":      limpiar();         return true
         case "f":      alternarCongelado(); return true
+        // Esconde la paleta sin salir del modo: cuando la cámara está grabando,
+        // una barra flotante en cuadro es basura visual. Vuelve con la misma tecla.
+        case "h":      paleta.alternarVisible(en: ventanaBajoElPuntero()?.screen); return true
         case "[":      moverGrosor(pasos: -1); return true
         case "]":      moverGrosor(pasos: 1);  return true
         case "1", "2", "3", "4", "5":
@@ -329,16 +347,21 @@ final class PizarraController {
     }
 
     func elegir(_ i: Instrumento) {
+        // Elegir instrumento con la tinta congelada es querer seguir dibujando.
+        if modo == .congelada { entrar() }
         instrumento = i
         plumaVolteada = false
         avisar("\(i.nombre) · \(Int(grosorActual))")
         repintarPunteroYAviso()
+        paleta.refrescar()
     }
 
     func elegir(_ c: TintaColor) {
+        if modo == .congelada { entrar() }
         color = c
         if instrumento == .goma { instrumento = .lapiz }   // pedir color es pedir lápiz
         avisar("\(instrumento.nombre) · \(c.nombre) · \(Int(grosorActual))")
+        paleta.refrescar()
     }
 
     func moverGrosor(pasos: Int) {
@@ -347,6 +370,7 @@ final class PizarraController {
                                          pasos: pasos, escalera: i.escalera)
         guard nuevo != grosores[i] else { return }
         grosores[i] = nuevo
+        paleta.refrescar()
         avisar("\(i.nombre) · \(Int(nuevo))")
         if i == .goma, let p = punteroGlobal {
             let r = nuevo / 2 + 8
@@ -358,10 +382,15 @@ final class PizarraController {
         guard !pizarra.estaVacia else { return }
         pizarra.limpiar()
         repintarTodo()
+        paleta.refrescar()
         avisar("Pizarra limpia")
     }
 
-    func deshacer() { pizarra.deshacer(); repintarTodo() }
+    func deshacer() {
+        pizarra.deshacer()
+        repintarTodo()
+        paleta.refrescar()
+    }
 
     // ════════════════════════════════════════════════════════════════════════
     // MARK: pintar
@@ -401,8 +430,10 @@ final class PizarraController {
         repintar(CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2))
     }
 
+    /// El HUD solo habla cuando la paleta NO está a la vista. Con las dos, el
+    /// mismo dato aparecía dos veces y el aviso pasaba de acuse a ruido.
     private func avisar(_ texto: String) {
-        guard modo != .apagado, !silencioso else { return }
+        guard modo != .apagado, !silencioso, !paleta.estaVisible else { return }
         hud.mostrar(texto, color: instrumentoEfectivo == .goma ? nil : color.color,
                     en: ventanaBajoElPuntero()?.screen ?? NSScreen.main)
     }

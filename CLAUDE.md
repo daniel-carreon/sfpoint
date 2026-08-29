@@ -1,11 +1,16 @@
 # CLAUDE.md — SFPoint
 
-> Para agentes IA. SFPoint tiene **DOS superficies y ningun panel de ajustes**:
-> el laser (`⌥P`) y la pizarra (`⌥L`). Si estas a punto de agregar una barra
-> flotante, un selector de color o una ventana de preferencias: no lo hagas. Todo
-> eso se borro a proposito en la v2 (v1 los tenia, nadie los uso, y cada uno era
-> superficie que podia romperse). Herramientas hay tres —lapiz, marcador, goma—
-> y se eligen con UNA tecla.
+> Para agentes IA. SFPoint tiene **DOS superficies**: el laser (`⌥P`) y la
+> pizarra (`⌥L`). Herramientas hay tres —lapiz, marcador, goma— y se eligen con
+> UNA tecla o desde la paleta.
+>
+> ⚠️ **Lo prohibido sigue prohibido, pero la paleta NO es lo prohibido.** Nada de
+> ventanas de preferencias, ajustes ni pestañas: eso se borro en la v2 porque
+> nadie lo uso y cada una era superficie que podia romperse. La paleta del lapiz
+> es otra cosa —dice que instrumento tienes en la mano AHORA— y existe porque sin
+> ella los atajos de una letra son fe ciega: Daniel entro al modo el 29 ago y no
+> supo si estaba en lapiz o goma, ni de que color, ni de que calibre. Es ESPEJO
+> ademas de cabina: todo se sigue pudiendo hacer con el teclado.
 
 ## Que es SFPoint
 
@@ -102,6 +107,7 @@ vuelve a portar; aqui no se le mete mano a ojo.
 | `[` `]` · rueda · dial de la tableta | grosor (escalera propia por instrumento) |
 | `⌘Z` / `⇧⌘Z` | deshacer / rehacer |
 | `C` o `⌫` | limpiar |
+| `H` | esconder/mostrar la paleta (para grabar sin ella en cuadro) |
 | boton derecho | borra sin cambiar de herramienta |
 | **voltear la pluma** | la punta de goma de la Kamvas borra sola (`tabletProximity`) |
 
@@ -131,9 +137,17 @@ vuelve a portar; aqui no se le mete mano a ojo.
 7. **El rasterizador es UNO SOLO** (`PintorTinta.pintar`): la pantalla y el banco
    de verificacion pintan con la misma funcion, o el banco mediria su propio
    dibujante en vez del motor.
-8. **El HUD no es un panel de ajustes**: es un acuse que aparece al cambiar algo,
-   dice que quedo puesto y se va solo en 1.4 s. Sin el, un atajo de una letra es
-   fe ciega.
+8. **La paleta vive en su PROPIO panel**, por encima del lienzo. Eso es lo que
+   hace que pulsar un boton no deje un garabato: el clic entra por una ventana
+   distinta y nunca toca la vista que dibuja. Su geometria vive en UNA lista de
+   zonas que leen el pintado y el clic — dos listas era el defecto clasico de una
+   barra hecha a mano. Se arrastra por el asa y recuerda donde la dejaste.
+9. **El HUD calla cuando la paleta esta a la vista.** Con las dos, el mismo dato
+   aparecia dos veces y el acuse pasaba a ruido. Solo habla si escondes la paleta.
+10. **La muestra de calibre es un DISCO del diametro real**, no un numero: la
+   misma verdad que el disco de la goma en el lienzo. Y el marcador se pinta
+   sobre un chip claro, porque su translucidez sobre el grafito de la barra se
+   veia marron y mentia sobre el color que pinta.
 
 ### El presupuesto del fotograma (medido, no prometido)
 
@@ -159,6 +173,7 @@ swift build -c release                 # solo compilar
 ./.build/release/SFPoint --banco-tinta /tmp/bt   # los 16 casos del banco de sfmap a PNG + tiempos
 ./.build/release/SFPoint --permiso               # TCC: concedido o no
 ./.build/release/SFPoint --tap-test              # que clase de tap dejo crear macOS
+./.build/release/SFPoint --paleta-png /tmp/p.png # la paleta en 3 estados, a PNG
 ./.build/release/SFPoint --banco /tmp/banco --color ambar   # 3 motores x 3 velocidades + hoja.png
 ./.build/release/SFPoint --demo 10 --color morado   # enciende el laser 10s
 ```
@@ -201,6 +216,7 @@ Sources/SFPoint/
   Pizarra.swift         modelo: trazo, instrumentos, historia, regla de la goma
   PizarraOverlay.swift  panel/vista por pantalla: captura de pluma y pintado
   PizarraController.swift  modo, teclas, goma, HUD
+  PizarraPaleta.swift   la paleta: su propio panel, arrastrable, espejo del estado
   PizarraTest.swift     --pizarra-test · --pizarra-humo · --banco-tinta
   main.swift            entry point
 ```

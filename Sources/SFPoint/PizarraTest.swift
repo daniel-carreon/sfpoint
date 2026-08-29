@@ -536,10 +536,19 @@ extension PizarraTest {
         check("y deshacer lo devolvió", ctrl.pizarra.trazos.count == 1)
         ctrl.ponerModoGoma(.parcial)
 
+        // SALIR NO BORRA: es lo que pidió Daniel el 29 ago. La tinta espera a
+        // que vuelvas; lo único que la tira es un acto de borrar.
+        let tintaAntes = ctrl.pizarra.trazos.count
         ctrl.salir()
-        check("al salir no queda tinta ni ventanas visibles",
-              ctrl.pizarra.estaVacia && !ventanas.contains(where: \.isVisible))
+        check("al salir se van las ventanas", !ventanas.contains(where: \.isVisible))
         check("y la paleta se fue con él", !ctrl.paleta.estaVisible)
+        check("pero LA TINTA SOBREVIVE a salir", ctrl.pizarra.trazos.count == tintaAntes,
+              "\(tintaAntes) → \(ctrl.pizarra.trazos.count)")
+        ctrl.entrar()
+        check("y vuelve a estar ahí al reentrar", ctrl.pizarra.trazos.count == tintaAntes)
+        ctrl.limpiar()
+        check("solo BORRAR la tira", ctrl.pizarra.estaVacia)
+        ctrl.salir()
         check("la fusión de eventos sigue restaurada", NSEvent.isMouseCoalescingEnabled)
 
         print("")

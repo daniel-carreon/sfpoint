@@ -97,7 +97,64 @@ final class PizarraController {
 
     var onModoChange: ((Modo) -> Void)?
 
+    // ════════════════════════════════════════════════════════════════════════
+    // MARK: lo que recuerda
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * El instrumento, el color, el calibre de CADA instrumento y el modo de
+     * goma sobreviven a cerrar la app. Es lo que Daniel pidió —*"que recuerde
+     * el último lápiz o config en la que se quedó"*— y es lo que hace que la
+     * pizarra se sienta un instrumento y no un formulario: la abres y está como
+     * la dejaste, sin volver a elegir morado del 6 cada vez.
+     *
+     * Se guarda al CAMBIAR, no al salir: si la app se va por las malas, lo
+     * último que tocaste ya está escrito.
+     */
+    private enum Llave {
+        static let instrumento = "sfpoint.pizarra.instrumento"
+        static let color = "sfpoint.pizarra.color"
+        static let modoGoma = "sfpoint.pizarra.modoGoma"
+        static func grosor(_ i: Instrumento) -> String { "sfpoint.pizarra.grosor.\(i.rawValue)" }
+    }
+
+    private func cargarPrefs() {
+        let d = UserDefaults.standard
+        if let i = Instrumento(rawValue: d.integer(forKey: Llave.instrumento)),
+           d.object(forKey: Llave.instrumento) != nil {
+            instrumento = i
+        }
+        if let c = TintaColor(rawValue: d.integer(forKey: Llave.color)),
+           d.object(forKey: Llave.color) != nil {
+            color = c
+        }
+        if let m = ModoGoma(rawValue: d.integer(forKey: Llave.modoGoma)),
+           d.object(forKey: Llave.modoGoma) != nil {
+            modoGoma = m
+        }
+        for i in Instrumento.allCases where d.object(forKey: Llave.grosor(i)) != nil {
+            let g = d.double(forKey: Llave.grosor(i))
+            // Solo si sigue siendo un peldaño de SU escalera: si un día cambian
+            // las escaleras, un valor guardado que ya no existe dejaría el dial
+            // descolocado y el panel marcando nada.
+            if i.escalera.contains(g) { grosores[i] = g }
+        }
+    }
+
+    private func guardarPrefs() {
+        // Las verificaciones NO escriben preferencias: una prueba que corre a
+        // las 6 AM no puede dejarle a Daniel el color y el calibre que le vino
+        // bien al banco de pruebas.
+        guard !silencioso else { return }
+        let d = UserDefaults.standard
+        d.set(instrumento.rawValue, forKey: Llave.instrumento)
+        d.set(color.rawValue, forKey: Llave.color)
+        d.set(modoGoma.rawValue, forKey: Llave.modoGoma)
+        for (i, g) in grosores { d.set(g, forKey: Llave.grosor(i)) }
+    }
+
     init() {
+        cargarPrefs()
         paleta.ctrl = self
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -164,10 +221,23 @@ final class PizarraController {
         onModoChange?(modo)
     }
 
+    /**
+     * Salir NO borra. Daniel, 29 ago: *"si presiono esc y vuelvo a presionar
+     * opt L se queda donde estaba, a menos que clickee en borrar"*.
+     *
+     * Y tiene razón de oficio: salir es *quitar la pizarra de en medio* para
+     * usar la app de abajo un momento, no tirar lo que llevas anotado. Borrar
+     * es un ACTO —la papelera, `C`, `⌫`—, no un efecto colateral de esconder
+     * la herramienta. Un Esc que se lleva media explicación es de las cosas que
+     * se aprenden una vez y no se perdonan.
+     *
+     * La tinta vive mientras viva la app; no se guarda en disco a propósito:
+     * una anotación de anteayer reapareciendo encima de otra pantalla sería el
+     * defecto contrario.
+     */
     func salir() {
         soltarGesto()
         modo = .apagado
-        pizarra.limpiar()
         punteroGlobal = nil
         plumaVolteada = false
         hud.ocultar()
@@ -329,7 +399,19 @@ final class PizarraController {
         let dist = hypot(p.x - desde.x, p.y - desde.y)
         let pasos = max(1, Int(ceil(dist / max(1.0, r / 2))))
 
-        var zona = CGRect.null
+        /*
+         * EL ARO SE LIMPIA SIEMPRE, HAYA TINTA O NO.
+         *
+         * Daniel: *"no me gusta el rastro circular punteado que deja"*. No era
+         * un efecto: era basura. El repintado solo se disparaba cuando la goma
+         * SE LLEVABA algo, así que al pasar por encima de un hueco el aro
+         * anterior se quedaba pintado en la pantalla y la mano iba dejando un
+         * collar de aros. La zona sucia tiene que cubrir el BARRIDO del aro
+         * —de donde estaba a donde está—, se borre tinta o no.
+         */
+        var zona = CGRect(x: min(desde.x, p.x) - r - 4, y: min(desde.y, p.y) - r - 4,
+                          width: abs(p.x - desde.x) + r * 2 + 8,
+                          height: abs(p.y - desde.y) + r * 2 + 8)
         var cambio = false
 
         for i in 1...pasos {
@@ -355,9 +437,9 @@ final class PizarraController {
             cambio = cambio || hubo
         }
 
+        repintar(zona)
         if cambio {
             borroAlgo = true
-            repintar(zona)
             paleta.refrescar()
         }
     }
@@ -367,6 +449,7 @@ final class PizarraController {
     func ponerModoGoma(_ m: ModoGoma) {
         guard m != modoGoma else { return }
         modoGoma = m
+        guardarPrefs()
         paleta.refrescar()
         repintarPunteroYAviso()
         avisar("\(m.nombre) · \(m.ayuda.lowercased())")
@@ -482,6 +565,7 @@ final class PizarraController {
         if modo == .congelada { entrar() }
         instrumento = i
         plumaVolteada = false
+        guardarPrefs()
         avisar(i == .goma ? "\(modoGoma.nombre) · \(Int(grosorActual))"
                           : "\(i.nombre) · \(Int(grosorActual))")
         repintarPunteroYAviso()
@@ -492,6 +576,7 @@ final class PizarraController {
         if modo == .congelada { entrar() }
         color = c
         if instrumento == .goma { instrumento = .lapiz }   // pedir color es pedir lápiz
+        guardarPrefs()
         avisar("\(instrumento.nombre) · \(c.nombre) · \(Int(grosorActual))")
         paleta.refrescar()
     }
@@ -502,6 +587,7 @@ final class PizarraController {
                                          pasos: pasos, escalera: i.escalera)
         guard nuevo != grosores[i] else { return }
         grosores[i] = nuevo
+        guardarPrefs()
         paleta.refrescar()
         avisar("\(i.nombre) · \(Int(nuevo))")
         if i == .goma, let p = punteroGlobal {
@@ -515,6 +601,7 @@ final class PizarraController {
         let i = instrumentoEfectivo
         guard grosores[i] != g else { return }
         grosores[i] = g
+        guardarPrefs()
         paleta.refrescar()
         if i == .goma, let p = punteroGlobal {
             let r = max(g, grosorGoma) / 2 + 10

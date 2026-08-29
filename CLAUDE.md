@@ -99,9 +99,9 @@ vuelve a portar; aqui no se le mete mano a ojo.
 
 | tecla | |
 |---|---|
-| `⌥L` | entrar / salir (al salir se limpia la tinta) |
+| `⌥L` | entrar / salir — **salir NO borra**: la tinta espera a que vuelvas |
 | `⌥⇧L` | **congelar**: la tinta se queda y el clic vuelve a las apps de abajo |
-| `Esc` | salir y limpiar |
+| `Esc` | salir (tampoco borra) |
 | `P` o `L` · `M` · `E` | lapiz · marcador (translucido) · goma |
 | `E` con la goma puesta | alterna **goma parcial ↔ trazo entero** |
 | clic en la herramienta ACTIVA | abre sus opciones (los 2 modos de goma · la escalera) |
@@ -110,7 +110,7 @@ vuelve a portar; aqui no se le mete mano a ojo.
 | `[` `]` · `,` `.` · **`⌃,` `⌃.`** · rueda | grosor, un peldaño — del instrumento que tengas en la mano |
 | **`⌃P` · `⌃M` · `⌃E`** | lapiz · marcador · goma — **los botones del lapiz fisico**, iguales a sfmap |
 | `⌘Z` / `⇧⌘Z` | deshacer / rehacer (los dos también en la paleta) |
-| `C` o `⌫` | limpiar |
+| `C` · `⌫` · la papelera de la paleta | **lo único que borra la pizarra** |
 | `H` | esconder/mostrar la paleta (para grabar sin ella en cuadro) |
 | boton derecho | borra sin cambiar de herramienta |
 | **voltear la pluma** | la punta de goma de la Kamvas borra sola (`tabletProximity`) |
@@ -146,8 +146,16 @@ vuelve a portar; aqui no se le mete mano a ojo.
    opciones — es lo que hacen Freeform, GoodNotes y Procreate. `⌃E` NO cicla:
    es el boton del lapiz fisico y un boton de hardware que cambia de significado
    al segundo apreton es una trampa.
-   **Se ve cual esta puesta ANTES de tocar tinta:** disco CONTINUO = parcial,
-   PUNTEADO = trazo entero, y el icono de la paleta cambia con el modo.
+   **Se ve cual esta puesta** por el icono de la paleta y su rotulo. El disco
+   del lienzo es un aro CONTINUO y fino en los dos modos: el punteado que los
+   distinguia se retiro —*"que simplemente se borre el espacio, smooth, sin
+   ninguna animacion ni nada"*—, porque una linea discontinua en movimiento
+   sobre una pantalla ajena se lee como parpadeo.
+3c. **El aro de la goma se limpia SIEMPRE, haya tinta o no.** El repintado solo
+   se disparaba cuando la goma se llevaba algo, asi que al pasar por un hueco el
+   aro anterior se quedaba pegado y la mano iba dejando un collar de aros. La
+   zona sucia cubre el BARRIDO del aro —de donde estaba a donde esta—, se borre
+   tinta o no.
 3b. **La goma BARRE, no puntea.** Entre dos eventos la mano recorre 20-40
    unidades; aplicar el disco solo donde cae cada evento dejaba islas de tinta
    sin tocar. Se aplica a pasos de medio radio entre el evento anterior y este,
@@ -171,6 +179,14 @@ vuelve a portar; aqui no se le mete mano a ojo.
    distinta y nunca toca la vista que dibuja. Su geometria vive en UNA lista de
    zonas que leen el pintado y el clic — dos listas era el defecto clasico de una
    barra hecha a mano. Se arrastra por el asa y recuerda donde la dejaste.
+8b. **SALIR NO BORRA, y la config SOBREVIVE a cerrar la app.** Salir es quitar
+   la pizarra de en medio, no tirar lo anotado: borrar es un ACTO (papelera, C,
+   ⌫), nunca un efecto colateral de esconder la herramienta. El instrumento, el
+   color, el calibre de CADA instrumento y el modo de goma se guardan en
+   `UserDefaults` AL CAMBIAR (si la app se va por las malas, lo ultimo que
+   tocaste ya esta escrito) — pero la TINTA no se guarda en disco a proposito:
+   una anotacion de anteayer reapareciendo encima de otra pantalla seria el
+   defecto contrario. Las verificaciones no escriben preferencias (`silencioso`).
 9. **El HUD calla cuando la paleta esta a la vista.** Con las dos, el mismo dato
    aparecia dos veces y el acuse pasaba a ruido. Solo habla si escondes la paleta.
 10. **Cada boton de la paleta lleva su ROTULO nativo con el atajo.** Nacio de

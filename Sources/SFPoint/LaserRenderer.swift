@@ -5,39 +5,66 @@ import AppKit
 /// conservaron para que el resultado sea visualmente identico.
 enum LaserRenderer {
 
-    /// Tope de la estela: redondeado por defecto, `butt` para el look original.
-    static let trailCap: CGLineCap =
-        (ProcessInfo.processInfo.environment["SFPOINT_TRAIL_CAP"] == "butt") ? .butt : .round
+    /// Como se pinta la estela.
+    ///
+    /// `contorno` (default) la rellena como UN poligono: sin juntas, y por eso
+    /// sin escalera ni cuentas. `segmentosButt` y `segmentosRound` conservan el
+    /// trazo por segmento del motor viejo — estan solo para poder comparar en
+    /// el banco (`--banco`), no para uso diario.
+    enum TrailStyle: String {
+        case contorno, segmentosButt = "butt", segmentosRound = "round"
+    }
+
+    static let trailStyle: TrailStyle =
+        TrailStyle(rawValue: ProcessInfo.processInfo.environment["SFPOINT_TRAIL_STYLE"]
+                             ?? ProcessInfo.processInfo.environment["SFPOINT_TRAIL_CAP"] ?? "")
+        ?? .contorno
 
     // MARK: - Laser (estela + punto con bloom)
 
-    static func drawLaser(in ctx: CGContext, pos: CGPoint?, trail: [CGPoint], color: NSColor) {
+    static func drawLaser(in ctx: CGContext, pos: CGPoint?, trail: [CGPoint], color: NSColor,
+                          style: TrailStyle = trailStyle) {
         let (lr, lg, lb) = color.rgb
         let dotDiam = Config.dotRadius * 2.0
         let n = trail.count
 
         if n >= 2 {
-            // Tope de la estela. `.butt` es lo que hacia la version Python
-            // (FlatCap): cada segmento termina plano y, como el ancho crece
-            // segmento a segmento, se ven escalones. `.round` los cose y la
-            // estela se lee continua. Se cambia con SFPOINT_TRAIL_CAP=butt.
-            ctx.setLineCap(LaserRenderer.trailCap)
-            ctx.setLineJoin(.round)
+            // Las tres capas comparten la geometria: el ancho y el color cambian,
+            // el recorrido no. Se prepara UNA vez por frame.
+            let core: (CGFloat) -> (CGFloat, CGFloat, CGFloat, CGFloat) = { t in
+                (lr + (1.0 - lr) * t * 0.6,
+                 lg + (240.0 / 255.0 - lg) * t * 0.4,
+                 lb + (180.0 / 255.0 - lb) * t * 0.3,
+                 t * t * 200.0 / 255.0)
+            }
 
-            // Pasada 1: glow ancho y suave por debajo (el sangrado de neon)
-            strokeTrail(ctx, trail, n) { t in
-                (RGBA(lr, lg, lb, t * t * 30.0 / 255.0), t * dotDiam * 2.5)
-            }
-            // Pasada 2: capa media de glow
-            strokeTrail(ctx, trail, n) { t in
-                (RGBA(lr, lg, lb, t * t * 80.0 / 255.0), t * dotDiam * 1.1)
-            }
-            // Pasada 3: nucleo caliente — el color viaja hacia blanco calido
-            strokeTrail(ctx, trail, n) { t in
-                let r = lr + (1.0 - lr) * t * 0.6
-                let g = lg + (240.0/255.0 - lg) * t * 0.4
-                let b = lb + (180.0/255.0 - lb) * t * 0.3
-                return (RGBA(r, g, b, t * t * 200.0 / 255.0), t * dotDiam * 0.6)
+            if style == .contorno, let prep = TrailContour.prepare(trail) {
+                // Pasada 1: glow ancho y suave por debajo (el sangrado de neon)
+                TrailContour.fill(ctx, prep,
+                                  width: { $0 * dotDiam * 2.5 },
+                                  color: { (lr, lg, lb, $0 * $0 * 30.0 / 255.0) })
+                // Pasada 2: capa media de glow
+                TrailContour.fill(ctx, prep,
+                                  width: { $0 * dotDiam * 1.1 },
+                                  color: { (lr, lg, lb, $0 * $0 * 80.0 / 255.0) })
+                // Pasada 3: nucleo caliente — el color viaja hacia blanco calido
+                TrailContour.fill(ctx, prep,
+                                  width: { $0 * dotDiam * 0.6 },
+                                  color: core)
+            } else {
+                // Motor viejo: un trazo por segmento. Se conserva para el banco.
+                ctx.setLineCap(style == .segmentosButt ? .butt : .round)
+                ctx.setLineJoin(.round)
+                strokeTrail(ctx, trail, n) { t in
+                    (RGBA(lr, lg, lb, t * t * 30.0 / 255.0), t * dotDiam * 2.5)
+                }
+                strokeTrail(ctx, trail, n) { t in
+                    (RGBA(lr, lg, lb, t * t * 80.0 / 255.0), t * dotDiam * 1.1)
+                }
+                strokeTrail(ctx, trail, n) { t in
+                    let (r, g, b, a) = core(t)
+                    return (RGBA(r, g, b, a), t * dotDiam * 0.6)
+                }
             }
         }
 

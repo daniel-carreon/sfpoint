@@ -90,3 +90,122 @@ enum SelfTest {
         return (lit, sumX / n, sumY / n, sumL / Double(w * h), peak)
     }
 }
+
+// MARK: - Banco de la estela
+
+/// Una estela no se juzga con adjetivos. El banco congela escenas deterministas
+/// (la misma estela a tres velocidades) y las pinta con los tres motores en el
+/// MISMO rasterizador, mismo fondo, mismo antialiasing: si cada motor pintara en
+/// su propia pila, el A/B mediria el rasterizador tanto como el motor.
+///
+///   ./.build/release/SFPoint --banco /tmp/banco
+enum TrailBench {
+
+    /// Separacion entre muestras = pixeles por frame a 60 fps. 4 = cursor casi
+    /// quieto · 12 = movimiento normal · 30 = barrido rapido de pantalla.
+    static let escenas: [(nombre: String, paso: CGFloat)] = [
+        ("lento", 4), ("normal", 12), ("rapido", 30),
+    ]
+    static let motores: [(String, LaserRenderer.TrailStyle)] = [
+        ("contorno", .contorno), ("segmentos-butt", .segmentosButt), ("segmentos-round", .segmentosRound),
+    ]
+    static let lienzo = CGSize(width: 640, height: 200)
+
+    static func trail(paso: CGFloat) -> [CGPoint] {
+        (0..<Config.trailLength).map { i in
+            CGPoint(x: 50 + CGFloat(i) * paso, y: 100 + sin(CGFloat(i) * 0.4) * 18)
+        }
+    }
+
+    static func run(dir: String, colorName: String) -> Int32 {
+        let color: NSColor = (colorName == "morado") ? Config.morado : Config.ambar
+        try? FileManager.default.createDirectory(atPath: dir,
+                                                 withIntermediateDirectories: true)
+        var hoja: [CGImage] = []
+        print("=== banco de la estela (\(colorName)) ===")
+        func pad(_ s: String, _ n: Int) -> String {
+            s.count >= n ? s : s + String(repeating: " ", count: n - s.count)
+        }
+        print(pad("motor", 17) + pad("escena", 9) + "  pixeles   luma media   ms/frame")
+
+        for (mNombre, style) in motores {
+            for (eNombre, paso) in escenas {
+                let t = trail(paso: paso)
+                guard let ctx = bitmap() else { return 1 }
+                ctx.setFillColor(RGBA(0, 0, 0, 1))
+                ctx.fill(CGRect(origin: .zero, size: lienzo))
+                ctx.setShouldAntialias(true)
+                LaserRenderer.drawLaser(in: ctx, pos: t.last, trail: t, color: color, style: style)
+                guard let img = ctx.makeImage() else { return 1 }
+                hoja.append(img)
+
+                let path = "\(dir)/\(mNombre)-\(eNombre).png"
+                if let data = NSBitmapImageRep(cgImage: img).representation(using: .png, properties: [:]) {
+                    try? data.write(to: URL(fileURLWithPath: path))
+                }
+                let s = stats(img)
+                let ms = cronometra(style: style, trail: t, color: color)
+                print(pad(mNombre, 17) + pad(eNombre, 9)
+                      + String(format: "%9d %12.5f %10.3f", s.lit, s.meanLuma, ms))
+            }
+        }
+
+        // Hoja de contacto: los 9 renders apilados, para mirarlos de un golpe.
+        let W = Int(lienzo.width), H = Int(lienzo.height)
+        if let sheet = CGContext(data: nil, width: W, height: H * hoja.count,
+                                 bitsPerComponent: 8, bytesPerRow: 0,
+                                 space: CGColorSpaceCreateDeviceRGB(),
+                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+            for (i, img) in hoja.enumerated() {
+                // Se apilan en el orden impreso; la fila 0 queda ARRIBA.
+                let y = H * (hoja.count - 1 - i)
+                sheet.draw(img, in: CGRect(x: 0, y: y, width: W, height: H))
+            }
+            if let out = sheet.makeImage(),
+               let data = NSBitmapImageRep(cgImage: out).representation(using: .png, properties: [:]) {
+                try? data.write(to: URL(fileURLWithPath: "\(dir)/hoja.png"))
+                print("hoja de contacto:  \(dir)/hoja.png  (orden = el de la tabla)")
+            }
+        }
+        return 0
+    }
+
+    private static func bitmap() -> CGContext? {
+        CGContext(data: nil, width: Int(lienzo.width), height: Int(lienzo.height),
+                  bitsPerComponent: 8, bytesPerRow: 0,
+                  space: CGColorSpaceCreateDeviceRGB(),
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+    }
+
+    /// Coste real por frame: lo que decide si la estela cabe en 16.6 ms.
+    private static func cronometra(style: LaserRenderer.TrailStyle,
+                                   trail: [CGPoint], color: NSColor) -> Double {
+        guard let ctx = bitmap() else { return 0 }
+        ctx.setShouldAntialias(true)
+        let reps = 300
+        for _ in 0..<20 { LaserRenderer.drawLaser(in: ctx, pos: trail.last, trail: trail, color: color, style: style) }
+        let t0 = CACurrentMediaTime()
+        for _ in 0..<reps {
+            LaserRenderer.drawLaser(in: ctx, pos: trail.last, trail: trail, color: color, style: style)
+        }
+        return (CACurrentMediaTime() - t0) * 1000 / Double(reps)
+    }
+
+    private static func stats(_ image: CGImage) -> (lit: Int, meanLuma: Double) {
+        let w = image.width, h = image.height
+        var buf = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &buf, width: w, height: h, bitsPerComponent: 8,
+                                  bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return (0, 0) }
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var lit = 0, sum = 0.0
+        for i in stride(from: 0, to: buf.count, by: 4) {
+            let l = 0.2126 * Double(buf[i]) / 255 + 0.7152 * Double(buf[i+1]) / 255
+                  + 0.0722 * Double(buf[i+2]) / 255
+            sum += l
+            if l > 0.02 { lit += 1 }
+        }
+        return (lit, sum / Double(w * h))
+    }
+}

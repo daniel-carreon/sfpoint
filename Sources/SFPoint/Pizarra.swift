@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 
 /**
  * LA PIZARRA — el modelo. Trazos, instrumentos y la regla de la goma.
@@ -261,6 +262,51 @@ final class Pizarra {
         var t = ((p.x - a.x) * vx + (p.y - a.y) * vy) / l2
         t = max(0, min(1, t))
         return hypot(p.x - (a.x + t * vx), p.y - (a.y + t * vy))
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// MARK: el dial de la tableta
+// ════════════════════════════════════════════════════════════════════════════
+
+extension Pizarra {
+    /**
+     * ¿Este scroll lo manda el DIAL de la Kamvas o una rueda de verdad?
+     *
+     * Portado tal cual de `sfmap/Lienzo.swift`, medido allá con una sonda sobre
+     * los aparatos de este escritorio: la rueda de un ratón entra por el HID del
+     * sistema con **pid 0**, y el dial de la tableta llega como un evento
+     * SINTÉTICO posteado por el proceso del driver de Huion. Ése es el único
+     * rasgo fiable que los separa — `hasPreciseScrollingDeltas` NO sirve, mete
+     * al ratón entero en la misma bolsa.
+     *
+     * Aquí solo lo usa la sonda (`SFPOINT_SONDA_DIAL`), porque sobre un lienzo a
+     * pantalla completa toda rueda es calibre. Existe para poder PREGUNTARLE al
+     * aparato en vez de adivinar el día que haga falta distinguirlos.
+     *
+     * Se cachea por pid: resolver el proceso en cada evento sería consultar al
+     * sistema cien veces por giro.
+     */
+    private static var procesoDeTableta: [pid_t: Bool] = [:]
+
+    static func esDialDeTableta(_ e: NSEvent) -> Bool {
+        guard let crudo = e.cgEvent?.getIntegerValueField(.eventSourceUnixProcessID),
+              crudo > 0 else { return false }          // pid 0 = aparato real
+        let pid = pid_t(crudo)
+        if let ya = procesoDeTableta[pid] { return ya }
+        var quien = ""
+        if let app = NSRunningApplication(processIdentifier: pid) {
+            quien = ((app.bundleIdentifier ?? "") + " " + (app.localizedName ?? "")).lowercased()
+        }
+        if quien.isEmpty {   // procesos sin cara: el driver puede no ser una app
+            var buf = [CChar](repeating: 0, count: 256)
+            if proc_name(pid, &buf, UInt32(buf.count)) > 0 {
+                quien = String(cString: buf).lowercased()
+            }
+        }
+        let esTableta = quien.contains("huion") || quien.contains("tablet")
+        procesoDeTableta[pid] = esTableta
+        return esTableta
     }
 }
 

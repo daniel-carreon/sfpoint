@@ -151,13 +151,30 @@ final class PizarraOverlayView: NSView {
         puntero = nil
     }
 
-    /// La rueda del ratón y el DIAL de la tableta mueven el grosor. En la Huion
-    /// el dial llega como un `scrollWheel` normal, así que no hay nada especial
-    /// que detectar: se anda por la escalera del instrumento activo.
+    /**
+     * La rueda del ratón y el DIAL de la tableta mueven el grosor.
+     *
+     * ⚠️ SE LEE EL EJE MAYOR, no `deltaY`. Las dos ruedas de la Kamvas son
+     * indistinguibles por procedencia —las manda el mismo driver— y lo único que
+     * las separa es el EJE: si el driver tiene una mapeada a desplazamiento
+     * horizontal, llega como `deltaX`. Leyendo solo la vertical, esa rueda no
+     * hacía absolutamente nada. Es el mismo hallazgo que sfmap midió con una
+     * sonda el 23 ago.
+     *
+     * Aquí no hay que decidir NADA más: sobre un lienzo que ocupa la pantalla no
+     * hay nada que panear ni que hacer zoom, así que toda rueda es calibre.
+     * `SFPOINT_SONDA_DIAL=1` imprime lo que manda el aparato, por si un día hay
+     * que volver a preguntárselo en vez de adivinar.
+     */
     override func scrollWheel(with e: NSEvent) {
-        let dy = e.scrollingDeltaY
-        guard abs(dy) > 0.01 else { return }
-        controller?.moverGrosor(pasos: dy > 0 ? 1 : -1)
+        if ProcessInfo.processInfo.environment["SFPOINT_SONDA_DIAL"] != nil {
+            FileHandle.standardError.write(Data(
+                "DIAL dx=\(e.scrollingDeltaX) dy=\(e.scrollingDeltaY) precis=\(e.hasPreciseScrollingDeltas) tableta=\(Pizarra.esDialDeTableta(e))\n".utf8))
+        }
+        let dx = e.scrollingDeltaX, dy = e.scrollingDeltaY
+        let d = abs(dx) > abs(dy) ? dx : dy
+        guard abs(d) > 0.01 else { return }
+        controller?.moverGrosor(pasos: d > 0 ? 1 : -1)
     }
 
     /// Voltear la pluma ES la goma. La Kamvas avisa por proximidad qué punta

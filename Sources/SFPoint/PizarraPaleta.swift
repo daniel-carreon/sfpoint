@@ -25,10 +25,11 @@ final class PaletaPizarra {
 
     private var panel: NSPanel?
     private let vista = PaletaVista()
+    let tira = TiraGrosores()
     private static let clavePos = "sfpoint.paleta.origen"
 
     weak var ctrl: PizarraController? {
-        didSet { vista.ctrl = ctrl }
+        didSet { vista.ctrl = ctrl; tira.ctrl = ctrl }
     }
 
     /// Alto y ancho salen del contenido: si cambian los botones, cambia la caja.
@@ -51,6 +52,7 @@ final class PaletaPizarra {
         p.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 3)
         vista.frame = NSRect(origin: .zero, size: tamano)
         vista.paleta = self
+        tira.paleta = self
         p.contentView = vista
         p.acceptsMouseMovedEvents = true    // sin esto los rótulos no aparecen
         vista.recolocarRotulos()
@@ -66,14 +68,24 @@ final class PaletaPizarra {
         p.orderFrontRegardless()
     }
 
-    func ocultar() { panel?.orderOut(nil) }
+    func ocultar() { tira.cerrar(); panel?.orderOut(nil) }
 
-    func refrescar() { vista.needsDisplay = true }
+    func refrescar() { vista.needsDisplay = true; tira.refrescar() }
+
+    /// La tira se cierra sola en cuanto la mano vuelve al lienzo: es un gesto,
+    /// no una ventana que se queda estorbando encima de lo que vas a anotar.
+    func cerrarTira() { tira.cerrar() }
 
     var estaVisible: Bool { panel?.isVisible ?? false }
 
     func alternarVisible(en pantalla: NSScreen?) {
         if estaVisible { ocultar() } else { mostrar(en: pantalla) }
+    }
+
+    /// Mover la paleta con la tira abierta la dejaría flotando en el aire.
+    func seguirConLaTira() {
+        guard tira.estaAbierta else { return }
+        tira.abrir(ancla: vista.anclaGrosor)
     }
 
     // MARK: sitio
@@ -123,7 +135,7 @@ final class PaletaVista: NSView, NSViewToolTipOwner {
         case asa
         case instrumento(Instrumento)
         case color(TintaColor)
-        case masGrosor, menosGrosor
+        case grosor
         case deshacer, rehacer, limpiar, congelar, salir
     }
     private struct Zona { let r: CGRect; let a: Accion }
@@ -162,13 +174,10 @@ final class PaletaVista: NSView, NSViewToolTipOwner {
         }
         x += sep - 6
 
-        z.append(Zona(r: CGRect(x: x, y: y, width: 26, height: botón), a: .menosGrosor))
-        x += 26
-        // El hueco del medio es la MUESTRA del calibre: no es un botón, es lo
-        // que vas a pintar. Un número solo no dice cómo se va a ver.
-        x += 40
-        z.append(Zona(r: CGRect(x: x, y: y, width: 26, height: botón), a: .masGrosor))
-        x += 26 + sep
+        // UN botón, no un `−/+`. La muestra que enseña es el calibre real que
+        // vas a pintar; al pulsarlo se abre la escalera entera (ver TiraGrosores).
+        z.append(Zona(r: CGRect(x: x, y: y, width: 48, height: botón), a: .grosor))
+        x += 48 + sep
 
         for a in [Accion.deshacer, .rehacer, .limpiar, .congelar, .salir] {
             z.append(Zona(r: CGRect(x: x, y: y, width: botón, height: botón), a: a))
@@ -179,10 +188,18 @@ final class PaletaVista: NSView, NSViewToolTipOwner {
     }
 
     private var muestraRect: CGRect {
-        let z = zonas(ancho: bounds.width).lista
-        guard let menos = z.first(where: { $0.a == .menosGrosor }) else { return .zero }
-        return CGRect(x: menos.r.maxX, y: 0, width: 40, height: alto)
+        zonas(ancho: bounds.width).lista.first { $0.a == .grosor }?.r ?? .zero
     }
+
+    /// La misma caja, pero en coordenadas de PANTALLA: la tira sale de aquí.
+    var anclaGrosor: CGRect {
+        guard let w = window else { return .zero }
+        return w.convertToScreen(convert(muestraRect, to: nil))
+    }
+
+    /// El calibre PERSIGUE al nuevo en vez de saltar. Girando el dial rápido,
+    /// una bola que parpadea no dice hacia dónde vas; una que crece, sí.
+    let disco = Animador()
 
     // MARK: pintar
 
@@ -240,9 +257,6 @@ final class PaletaVista: NSView, NSViewToolTipOwner {
                     ctx.strokeEllipse(in: zona.r.insetBy(dx: 0.8, dy: 0.8))
                 }
 
-            case .menosGrosor, .masGrosor:
-                let mas = zona.a == .masGrosor
-                icono(mas ? "plus" : "minus", zona.r, NSColor(white: 0.72, alpha: 1), ctx, tamano: 11)
 
             case .deshacer:
                 pintarBoton(zona.r, activo: false, en: ctx)
@@ -263,16 +277,33 @@ final class PaletaVista: NSView, NSViewToolTipOwner {
             case .salir:
                 pintarBoton(zona.r, activo: false, en: ctx)
                 icono("xmark", zona.r, NSColor(white: 0.72, alpha: 1), ctx, tamano: 12)
+            case .grosor:
+                break   // se pinta abajo, con su muestra y su número
             }
         }
 
         // La MUESTRA del calibre: un disco del diámetro real que vas a pintar,
         // con el color activo, y el número debajo. Es la misma verdad que el
-        // disco de la goma en el lienzo — se ve lo que va a salir.
+        // disco de la goma en el lienzo — se ve lo que va a salir. Y es un
+        // BOTÓN: al pulsarlo se abre la escalera entera.
         let m = muestraRect
+        let abierta = paleta?.tira.estaAbierta ?? false
+        let fondoM = CGPath(roundedRect: m.insetBy(dx: 2, dy: 2), cornerWidth: 9,
+                            cornerHeight: 9, transform: nil)
+        ctx.addPath(fondoM)
+        ctx.setFillColor(abierta
+            ? CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.16)
+            : CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.06))
+        ctx.fillPath()
         let inst = ctrl.instrumentoEfectivo
-        let d = min(26.0, Tinta.diametro(Tinta.Opciones(grosor: ctrl.grosorActual,
-                                                        marcador: inst == .marcador)))
+        let destino = min(26.0, Tinta.diametro(Tinta.Opciones(grosor: ctrl.grosorActual,
+                                                              marcador: inst == .marcador)))
+        // La primera vez se PLANTA, no se persigue: el disco tiene que nacer con
+        // el calibre puesto. Perseguir desde cero convertía abrir la paleta en
+        // una animación que nadie pidió (y en el render headless, donde no corre
+        // el reloj, dejaba una mota en vez de la muestra).
+        if disco.valor <= 0.01 { disco.plantar(destino) } else { disco.objetivo = destino }
+        let d = max(2.0, disco.valor)
         let cInst: NSColor = inst == .goma ? NSColor(white: 0.85, alpha: 1) : ctrl.color.color
         let disco = CGRect(x: m.midX - d / 2, y: m.midY - d / 2 + 4, width: d, height: d)
         if inst == .marcador {
@@ -288,7 +319,7 @@ final class PaletaVista: NSView, NSViewToolTipOwner {
             ctx.strokeEllipse(in: disco)
         }
         texto("\(Int(ctrl.grosorActual))", en: CGRect(x: m.minX, y: 4, width: m.width, height: 11),
-              tamano: 9, color: NSColor(white: 0.55, alpha: 1))
+              tamano: 9, color: NSColor(white: abierta ? 0.85 : 0.55, alpha: 1))
     }
 
     private func pintarBoton(_ r: CGRect, activo: Bool, en ctx: CGContext) {
@@ -360,10 +391,8 @@ final class PaletaVista: NSView, NSViewToolTipOwner {
             ctrl.elegir(i)
         case .color(let c):
             ctrl.elegir(c)
-        case .menosGrosor:
-            ctrl.moverGrosor(pasos: -1)
-        case .masGrosor:
-            ctrl.moverGrosor(pasos: 1)
+        case .grosor:
+            paleta?.tira.alternar(ancla: anclaGrosor)
         case .deshacer:
             ctrl.deshacer()
         case .rehacer:
@@ -381,6 +410,7 @@ final class PaletaVista: NSView, NSViewToolTipOwner {
     override func mouseDragged(with e: NSEvent) {
         guard arrastrando else { return }
         paleta?.mover(NSSize(width: e.deltaX, height: -e.deltaY))
+        paleta?.seguirConLaTira()
     }
 
     override func mouseUp(with e: NSEvent) {
@@ -416,8 +446,7 @@ final class PaletaVista: NSView, NSViewToolTipOwner {
         case .instrumento(.marcador): return "Marcador translúcido  (M)"
         case .instrumento(.goma):     return "Goma  (E)  ·  o voltea la pluma"
         case .color(let c):           return "\(c.nombre)  (\((TintaColor.allCases.firstIndex(of: c) ?? 0) + 1))"
-        case .menosGrosor:            return "Más delgado  ( [ )"
-        case .masGrosor:              return "Más grueso  ( ] )"
+        case .grosor:                 return "Grosor — clic para la escalera  ·  dial de la tableta, rueda, [ ]"
         case .deshacer:               return "Deshacer  (⌘Z)"
         case .rehacer:                return "Rehacer  (⇧⌘Z)"
         case .limpiar:                return "Limpiar la pizarra  (C)"
@@ -437,6 +466,13 @@ final class PaletaVista: NSView, NSViewToolTipOwner {
 
     override func layout() {
         super.layout()
+        recolocarRotulos()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // El calibre persigue al nuevo valor y repinta mientras dura el viaje.
+        disco.alRepintar = { [weak self] in self?.needsDisplay = true }
         recolocarRotulos()
     }
 

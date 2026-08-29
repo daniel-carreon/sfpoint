@@ -104,7 +104,9 @@ vuelve a portar; aqui no se le mete mano a ojo.
 | `Esc` | salir y limpiar |
 | `P` o `L` · `M` · `E` | lapiz · marcador (translucido) · goma |
 | `1..5` | morado · ambar · blanco · negro · rojo |
-| `[` `]` · rueda · dial de la tableta | grosor (escalera propia por instrumento) |
+| clic en el disco de la paleta | abre la ESCALERA entera (9 lapiz · 6 marcador · 5 goma) |
+| `[` `]` · `,` `.` · rueda · dial | grosor, un peldaño (los cuatro mapeos del driver de Huion) |
+| **`⌃P` · `⌃M` · `⌃E`** | lapiz · marcador · goma — **los botones del lapiz fisico**, iguales a sfmap |
 | `⌘Z` / `⇧⌘Z` | deshacer / rehacer (los dos también en la paleta) |
 | `C` o `⌫` | limpiar |
 | `H` | esconder/mostrar la paleta (para grabar sin ella en cuadro) |
@@ -152,7 +154,22 @@ vuelve a portar; aqui no se le mete mano a ojo.
    Daniel preguntando *"¿que hace el copo de nieve?"*: un icono que hay que
    preguntar no comunica, y ninguno tiene hueco para una palabra. El rotulo dice
    el nombre Y la tecla, que es como se aprende a dejar de usar la barra.
-11. **La muestra de calibre es un DISCO del diametro real**, no un numero: la
+11. **LOS COMANDOS DE TABLETA SON LOS DE SFMAP, no unos parecidos.** `⌃P/⌃M/⌃E`
+   (los botones del lapiz fisico de la Kamvas, con CONTROL porque una tableta
+   manda su combinacion sin que haya un dedo cerca del teclado) y las cuatro
+   teclas del dial (`[ ] , .`). El mismo lapiz tiene que hacer lo mismo en las
+   dos apps o el musculo se parte en dos. Y la rueda se lee por el EJE MAYOR,
+   no por `deltaY`: las dos ruedas de la Kamvas son indistinguibles por
+   procedencia y lo unico que las separa es el eje — leyendo solo la vertical,
+   la de abajo no hacia nada. `SFPOINT_SONDA_DIAL=1` se lo pregunta al aparato.
+   `Pizarra.esDialDeTableta` esta portado de sfmap por si algun dia hay que
+   distinguirlos de verdad (pid 0 = raton real; el dial llega del driver).
+12. **El grosor es UN boton que abre la escalera**, no un `−/+`. Contar ocho
+   pulsaciones para ir de 1 a 9 sin ver a donde vas no es elegir; la tira
+   ademas ENSEÑA cuantos peldaños hay. Cada instrumento trae su escalera y su
+   MARCA (disco lleno · banda translucida · aro), con rampa de RAIZ porque en
+   lineal los cuatro primeros peldaños del lapiz son la misma mota.
+13. **La muestra de calibre es un DISCO del diametro real**, no un numero: la
    misma verdad que el disco de la goma en el lienzo. Y el marcador se pinta
    sobre un chip claro, porque su translucidez sobre el grafito de la barra se
    veia marron y mentia sobre el color que pinta.
@@ -225,6 +242,7 @@ Sources/SFPoint/
   PizarraOverlay.swift  panel/vista por pantalla: captura de pluma y pintado
   PizarraController.swift  modo, teclas, goma, HUD
   PizarraPaleta.swift   la paleta: su propio panel, arrastrable, espejo del estado
+  PizarraTira.swift     la escalera de grosores + el Animador (valor que persigue)
   PizarraTest.swift     --pizarra-test · --pizarra-humo · --banco-tinta
   main.swift            entry point
 ```

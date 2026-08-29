@@ -395,6 +395,43 @@ extension PizarraTest {
         check("la tecla E cambió a la goma", ctrl.instrumentoEfectivo == .goma,
               ctrl.instrumentoEfectivo.nombre)
 
+        // ── los comandos de la TABLETA, los mismos que sfmap ────────────────
+        func tecla(_ ch: String, _ codigo: UInt16, _ mods: NSEvent.ModifierFlags = []) {
+            if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: mods,
+                                        timestamp: 0, windowNumber: win.windowNumber,
+                                        context: nil, characters: ch,
+                                        charactersIgnoringModifiers: ch,
+                                        isARepeat: false, keyCode: codigo) {
+                vista.keyDown(with: e)
+            }
+        }
+        tecla("p", 35, .control)
+        check("⌃P (botón del lápiz físico) → lápiz", ctrl.instrumentoEfectivo == .lapiz,
+              ctrl.instrumentoEfectivo.nombre)
+        tecla("m", 46, .control)
+        check("⌃M → marcador", ctrl.instrumentoEfectivo == .marcador)
+        tecla("e", 14, .control)
+        check("⌃E → goma", ctrl.instrumentoEfectivo == .goma)
+        tecla("p", 35, .control)
+
+        let g0 = ctrl.grosorActual
+        tecla("]", 30)
+        let g1 = ctrl.grosorActual
+        tecla(",", 43)
+        check("la rueda de la Huion sube con ] y baja con ,",
+              g1 > g0 && ctrl.grosorActual == g0, "\(g0) → \(g1) → \(ctrl.grosorActual)")
+        tecla(".", 47)
+        check("y también con . (el otro mapeo del driver)", ctrl.grosorActual > g0)
+        ctrl.ponerGrosor(g0)
+
+        // ── la tira de grosores ────────────────────────────────────────────
+        check("la tira nace cerrada", !ctrl.paleta.tira.estaAbierta)
+        ctrl.paleta.tira.abrir(ancla: CGRect(x: pantalla.frame.midX, y: pantalla.frame.minY + 80,
+                                             width: 48, height: 36))
+        check("la tira abre", ctrl.paleta.tira.estaAbierta)
+        ctrl.paleta.cerrarTira()
+        ctrl.elegir(.goma)   // el bloque de arriba dejó el lápiz: se devuelve la goma
+
         if let e0 = evento(.leftMouseDown, base.x + 130, base.y + 90, 0.5, 1) {
             vista.mouseDown(with: e0)
         }
@@ -469,8 +506,14 @@ extension PizarraTest {
             ("goma", { ctrl.elegir(.goma) }),
         ]
 
+        // Y la tira de cada instrumento debajo: es donde se ve si la escalera
+        // se lee de un vistazo y si cada marca dice qué instrumento calibras.
+        let tiras = Instrumento.allCases
+        let vistaTira = TiraVista()
+        vistaTira.ctrl = ctrl
+
         let w = Int(vista.bounds.width) + 40
-        let h = (Int(vista.bounds.height) + 22) * estados.count + 22
+        let h = (Int(vista.bounds.height) + 22) * (estados.count + tiras.count) + 22
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
                                   bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
@@ -491,6 +534,20 @@ extension PizarraTest {
             }
             print("  \(nombre): \(Int(vista.bounds.width))x\(Int(vista.bounds.height))")
             y -= Int(vista.bounds.height) + 22
+        }
+
+        for inst in tiras {
+            ctrl.elegir(inst)
+            vistaTira.frame = NSRect(origin: .zero, size: vistaTira.tamano)
+            guard let rep = vistaTira.bitmapImageRepForCachingDisplay(in: vistaTira.bounds)
+            else { continue }
+            vistaTira.cacheDisplay(in: vistaTira.bounds, to: rep)
+            if let img = rep.cgImage {
+                ctx.draw(img, in: CGRect(x: 20, y: CGFloat(y), width: vistaTira.bounds.width,
+                                         height: vistaTira.bounds.height))
+            }
+            print("  tira \(inst.nombre): \(inst.escalera.count) peldaños")
+            y -= Int(vistaTira.bounds.height) + 22
         }
 
         guard let img = ctx.makeImage(),

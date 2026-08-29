@@ -201,6 +201,7 @@ final class PizarraController {
 
     func empezar(en p: CGPoint, evento e: NSEvent, gomaForzada: Bool) {
         guard modo == .dibujando else { return }
+        paleta.cerrarTira()
         punteroGlobal = p
         borrando = gomaForzada || instrumentoEfectivo == .goma
 
@@ -345,6 +346,26 @@ final class PizarraController {
         }
         guard !cmd else { return false }
 
+        /*
+         * ⌃P LÁPIZ · ⌃M MARCADOR · ⌃E GOMA — LOS MISMOS QUE SFMAP.
+         *
+         * Daniel tiene los botones del lápiz físico de la Kamvas configurados
+         * así (sfmap, 26 ago: *"así configuraré los botones en el lápiz físico
+         * de la tableta"*), y el mismo lápiz tiene que hacer lo mismo en las dos
+         * apps o el músculo se parte en dos. Van con CONTROL y no sueltas por la
+         * razón de allá: una tableta manda su combinación sin que haya un dedo
+         * cerca del teclado, así que un atajo para hardware tiene que ser
+         * imposible de pulsar por accidente mientras se escribe.
+         */
+        if e.modifierFlags.contains(.control) {
+            switch c {
+            case "p": elegir(.lapiz);    return true
+            case "m": elegir(.marcador); return true
+            case "e": elegir(.goma);     return true
+            default: return false
+            }
+        }
+
         switch c {
         case "p", "l": elegir(.lapiz);    return true
         case "m":      elegir(.marcador); return true
@@ -354,8 +375,11 @@ final class PizarraController {
         // Esconde la paleta sin salir del modo: cuando la cámara está grabando,
         // una barra flotante en cuadro es basura visual. Vuelve con la misma tecla.
         case "h":      paleta.alternarVisible(en: ventanaBajoElPuntero()?.screen); return true
-        case "[":      moverGrosor(pasos: -1); return true
-        case "]":      moverGrosor(pasos: 1);  return true
+        // La rueda de abajo de la Huion puede mandar `[ ]` o `, .` según cómo
+        // esté mapeada en su app. sfmap acepta las cuatro; aquí también, o el
+        // mismo dial haría cosas distintas en cada app.
+        case "[", ",":  moverGrosor(pasos: -1); return true
+        case "]", ".":  moverGrosor(pasos: 1);  return true
         case "1", "2", "3", "4", "5":
             if let n = Int(c), let col = TintaColor(rawValue: n - 1) { elegir(col) }
             return true
@@ -395,6 +419,18 @@ final class PizarraController {
         avisar("\(i.nombre) · \(Int(nuevo))")
         if i == .goma, let p = punteroGlobal {
             let r = nuevo / 2 + 8
+            repintar(CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2))
+        }
+    }
+
+    /// Poner un peldaño CONCRETO. Es lo que hace la tira: elegir, no contar.
+    func ponerGrosor(_ g: Double) {
+        let i = instrumentoEfectivo
+        guard grosores[i] != g else { return }
+        grosores[i] = g
+        paleta.refrescar()
+        if i == .goma, let p = punteroGlobal {
+            let r = max(g, grosorGoma) / 2 + 10
             repintar(CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2))
         }
     }

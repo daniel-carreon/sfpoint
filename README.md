@@ -5,13 +5,13 @@
 <h1 align="center">SFPoint</h1>
 
 <p align="center">
-  <strong>A laser pointer for your Mac screen. One shortcut, nothing else.</strong>
+  <strong>A laser pointer and a pressure-sensitive whiteboard for your Mac screen. Two shortcuts, nothing else.</strong>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-15%2B-blue?style=flat-square" alt="macOS">
-  <img src="https://img.shields.io/badge/Python-3.12%2B-green?style=flat-square" alt="Python">
-  <img src="https://img.shields.io/badge/UI-PyQt6%20%2B%20PyObjC-purple?style=flat-square" alt="PyQt6">
+  <img src="https://img.shields.io/badge/Swift-6-orange?style=flat-square" alt="Swift">
+  <img src="https://img.shields.io/badge/UI-AppKit%20%2B%20Core%20Graphics-purple?style=flat-square" alt="AppKit">
   <img src="https://img.shields.io/badge/Cost-%240-brightgreen?style=flat-square" alt="Cost">
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat-square" alt="License">
 </p>
@@ -26,8 +26,18 @@ A neon laser pointer that floats over everything on macOS. Press `⌥P` to cycle
 off  →  ambar  →  morado  →  off
 ```
 
-That is the entire app. No tools, no toolbar, no modes to learn. It lives in the
-menu bar, never steals focus, and never blocks a click.
+And `⌥L` turns the screen into a whiteboard: draw over **any app** with real pen
+pressure and tilt from a drawing tablet, erase with a separate eraser (or just
+flip the pen), and `⌥⇧L` freezes the ink so you can keep using the app underneath
+with your annotation on top.
+
+That is the entire app. No toolbar, no settings panel, no modes to learn. It
+lives in the menu bar, never steals focus, and the laser never blocks a click.
+
+The ink engine is ported verbatim from **sfmap**, where it was calibrated against
+32 real strokes from a Huion Kamvas 13 — variable width from pressure, an
+elliptical nib that follows the pen's tilt, centripetal Catmull-Rom with corner
+detection, and a single filled contour instead of a stack of line segments.
 
 v2.0 deliberately removed arrows, rectangles, circles, freehand, text, the
 highlighter, the floating toolbar and the settings panel. A tool you never use is

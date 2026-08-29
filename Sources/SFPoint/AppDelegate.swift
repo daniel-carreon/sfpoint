@@ -1,9 +1,16 @@
 import AppKit
 
-/// SFPoint — puntero laser para macOS.
+/// SFPoint — puntero laser y pizarra para macOS.
 ///
-/// ⌥P cicla: apagado → ambar → morado → apagado.  Esc apaga.
-/// Eso es TODA la app. Vive en la barra de menu, no tiene icono en el Dock y
+/// ⌥P cicla el laser: apagado → ambar → morado → apagado.
+/// ⌥L entra al modo lapiz (dibujar sobre CUALQUIER app, con presion e
+/// inclinacion de la tableta); ⌥⇧L congela la tinta; Esc apaga lo que este
+/// encendido.
+///
+/// LASER Y LAPIZ SON EXCLUYENTES, y no por comodidad: el laser oculta el cursor
+/// y deja pasar el clic, el lapiz lo captura. Encender uno apaga el otro, y ese
+/// cruce vive AQUI —el unico sitio que conoce a los dos— para que ninguno de los
+/// dos controladores tenga que saber del otro. Vive en la barra de menu, no tiene icono en el Dock y
 /// jamas roba el foco.
 ///
 /// El icono de la barra refleja el estado Y sirve de superficie de control de
@@ -12,7 +19,10 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var controller: LaserController!
+    private var pizarra: PizarraController!
     private let hotkey = HotkeyListener()
+    private var lapizItem: NSMenuItem!
+    private var congelarItem: NSMenuItem!
     private var statusItem: NSStatusItem!
     private var stateItems: [Config.LaserState: NSMenuItem] = [:]
     private var permItem: NSMenuItem!
@@ -31,6 +41,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller = LaserController()
         controller.onStateChange = { [weak self] state in self?.reflect(state) }
 
+        pizarra = PizarraController()
+        pizarra.onModoChange = { [weak self] modo in self?.reflejarLapiz(modo) }
+
         buildMenuBar()
         wireHotkey()
         checkPermission(firstRun: true)
@@ -44,7 +57,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         watchdog = t
 
         FileHandle.standardError.write(
-            "SFPoint running — ⌥P cicla: apagado → ambar → morado. Esc apaga.\n".data(using: .utf8)!)
+            """
+            SFPoint running
+              ⌥P  laser: apagado → ambar → morado
+              ⌥L  lapiz sobre cualquier app  ·  ⌥⇧L congela la tinta
+              Esc apaga lo que este encendido
+
+            """.data(using: .utf8)!)
 
         // --demo <segundos> [--color ambar|morado]: enciende el laser sin
         // depender del atajo, para poder verificarlo cuando TCC no coopera
@@ -68,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         hotkey.stop()
+        pizarra?.salir()
         controller.shutdown()
         watchdog?.invalidate()
     }
@@ -89,6 +109,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(item)
             stateItems[state] = item
         }
+
+        menu.addItem(.separator())
+
+        lapizItem = NSMenuItem(title: "Lapiz   ⌥L", action: #selector(toggleLapiz),
+                               keyEquivalent: "")
+        lapizItem.target = self
+        menu.addItem(lapizItem)
+
+        congelarItem = NSMenuItem(title: "Congelar tinta   ⌥⇧L", action: #selector(toggleCongelar),
+                                  keyEquivalent: "")
+        congelarItem.target = self
+        congelarItem.isEnabled = false
+        menu.addItem(congelarItem)
+
+        let limpiar = NSMenuItem(title: "Limpiar pizarra", action: #selector(limpiarPizarra),
+                                 keyEquivalent: "")
+        limpiar.target = self
+        menu.addItem(limpiar)
 
         menu.addItem(.separator())
 
@@ -191,10 +229,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func pickState(_ sender: NSMenuItem) {
         guard let s = Config.LaserState(rawValue: sender.tag) else { return }
+        // Excluyentes tambien desde el menu, no solo desde el atajo: dos puertas
+        // a lo mismo tienen que aplicar la misma regla o una de las dos miente.
+        if s != .off && pizarra.modo != .apagado { pizarra.salir() }
         controller.setState(s)
     }
 
     @objc private func quitApp() { NSApp.terminate(nil) }
+
+    // MARK: - Lapiz
+
+    /// La regla de exclusion, en un solo sitio.
+    @objc private func toggleLapiz() {
+        if pizarra.modo == .apagado { controller.setState(.off) }
+        pizarra.alternar()
+    }
+
+    @objc private func toggleCongelar() { pizarra.alternarCongelado() }
+
+    @objc private func limpiarPizarra() { pizarra.limpiar() }
+
+    private func reflejarLapiz(_ modo: PizarraController.Modo) {
+        switch modo {
+        case .apagado:
+            lapizItem.state = .off
+            lapizItem.title = "Lapiz   ⌥L"
+            congelarItem.isEnabled = false
+        case .dibujando:
+            lapizItem.state = .on
+            lapizItem.title = "Lapiz   ⌥L"
+            congelarItem.isEnabled = true
+        case .congelada:
+            lapizItem.state = .mixed
+            lapizItem.title = "Lapiz (tinta congelada)   ⌥L"
+            congelarItem.isEnabled = true
+        }
+        // El icono de la barra tambien lo dice: una app sin retroalimentacion
+        // visible es la que se queda muda cuando TCC le quita el atajo.
+        if modo == .apagado {
+            reflect(controller.state)
+        } else {
+            statusItem.button?.toolTip = modo == .dibujando
+                ? "SFPoint — dibujando (⌥L sale, ⌥⇧L congela)"
+                : "SFPoint — tinta congelada (⌥L sigue dibujando)"
+        }
+    }
 
     @objc private func restartApp() {
         let path = Config.appPath
@@ -234,10 +313,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func wireHotkey() {
         hotkey.onCycle = { [weak self] in
-            Task { @MainActor in self?.controller.cycle() }
+            Task { @MainActor in
+                guard let self else { return }
+                // Encender el laser saca del lapiz: son excluyentes.
+                if self.pizarra.modo != .apagado { self.pizarra.salir() }
+                self.controller.cycle()
+            }
         }
         hotkey.onOff   = { [weak self] in
-            Task { @MainActor in self?.controller.setState(.off) }
+            Task { @MainActor in
+                guard let self else { return }
+                // Esc apaga PRIMERO lo que esta capturando la mano. Si apagara
+                // siempre el laser, un Esc con la pizarra abierta no haria nada
+                // visible y pareceria que la app no escucha.
+                if self.pizarra.modo != .apagado { self.pizarra.salir(); return }
+                self.controller.setState(.off)
+            }
+        }
+        hotkey.onLapiz = { [weak self] in
+            Task { @MainActor in self?.toggleLapiz() }
+        }
+        hotkey.onCongelar = { [weak self] in
+            Task { @MainActor in self?.pizarra.alternarCongelado() }
         }
         _ = hotkey.start()
     }

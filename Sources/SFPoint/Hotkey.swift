@@ -1,10 +1,22 @@
 import AppKit
 
-/// Atajo global: ⌥P cicla el laser, Esc lo apaga.
+/// Atajos globales: ⌥P cicla el laser, ⌥L entra/sale del modo lapiz,
+/// ⌥⇧L congela la tinta, Esc apaga lo que este encendido.
 ///
-/// Usa un CGEventTap de SOLO ESCUCHA (`.listenOnly`): jamas se traga la tecla,
-/// asi que ⌥P sigue llegando a la app que este al frente. macOS lo protege tras
+/// El tap DEJA PASAR TODO menos ⌥L y ⌥⇧L. macOS lo protege tras
 /// "Monitorizacion de entrada" (kTCCServiceListenEvent).
+///
+/// ⚠️ ENMIENDA AL INVARIANTE 3 (29 ago 2026, al nacer el modo lapiz). El tap era
+/// `.listenOnly` para no robarle NUNCA una tecla a la app de enfrente, y esa
+/// sigue siendo la regla: ⌥P, Esc y absolutamente todo lo demas se reenvian
+/// intactos. La excepcion es ⌥L, y tiene una razon medible: en el teclado de
+/// Daniel ⌥L ESCRIBE "¬". Con el tap sordo, abrir la pizarra encima de un editor
+/// le metia un caracter basura en el texto cada vez. Un atajo que ensucia el
+/// documento que vas a anotar no es un atajo.
+///
+/// Se traga EXACTAMENTE ⌥L y ⌥⇧L (sin ⌘ ni ⌃) y nada mas. Si el tap muriera, el
+/// unico coste es que el atajo deja de responder — la segunda superficie (el
+/// menu de la barra) sigue abriendo el lapiz.
 final class HotkeyListener {
 
     /// @Sendable: el tap corre fuera del hilo principal, asi que los
@@ -12,9 +24,17 @@ final class HotkeyListener {
     /// nunca se envia `self` a traves del limite de concurrencia.
     var onCycle: (@Sendable () -> Void)?
     var onOff: (@Sendable () -> Void)?
+    /// ⌥L — el modo lapiz (pizarra sobre cualquier app).
+    var onLapiz: (@Sendable () -> Void)?
+    /// ⌥⇧L — congelar la tinta y devolver el clic a las apps.
+    var onCongelar: (@Sendable () -> Void)?
 
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
+    /// `true` si macOS nos dejo crear un tap que PUEDE consumir teclas. Si no,
+    /// se cae a solo-escucha y el atajo sigue funcionando (⌥L abre la pizarra),
+    /// solo que ademas escribe su caracter en la app de enfrente.
+    private(set) var puedeConsumir = false
 
     /// Arranca (o reinicia) el tap. Es seguro llamarlo varias veces: asi se
     /// revive el atajo en el momento exacto en que el usuario concede el permiso.
@@ -26,19 +46,43 @@ final class HotkeyListener {
         let callback: CGEventTapCallBack = { _, type, event, refcon in
             guard let refcon else { return Unmanaged.passUnretained(event) }
             let me = Unmanaged<HotkeyListener>.fromOpaque(refcon).takeUnretainedValue()
-            me.handle(type: type, event: event)
-            return Unmanaged.passUnretained(event)   // nunca consumimos la tecla
+            // La decision de tragarse o no la tecla se toma AQUI y en sincrono:
+            // el callback del tap no puede esperar al hilo principal sin que
+            // macOS lo mate por lento.
+            if me.handle(type: type, event: event) { return nil }
+            return Unmanaged.passUnretained(event)
         }
 
-        guard let t = CGEvent.tapCreate(
+        /*
+         * DOS INTENTOS, y el segundo no es paranoia: un tap que CONSUME teclas
+         * (`.defaultTap`) exige Accesibilidad, mientras que uno de solo escucha
+         * exige Monitorizacion de entrada. Son permisos DISTINTOS. Pedir el
+         * primero y rendirse si falta dejaria la app entera sorda —incluido ⌥P,
+         * que lleva meses funcionando— por una comodidad del lapiz.
+         *
+         * Asi que: se intenta el que puede tragarse ⌥L y, si macOS lo niega, se
+         * cae al de siempre. Lo unico que se pierde es que ⌥L escriba "¬" en la
+         * app de enfrente; todo lo demas sigue igual. Degradar, no morir.
+         */
+        var creado = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .listenOnly,
+            options: .defaultTap,
             eventsOfInterest: CGEventMask(mask),
             callback: callback,
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
-        ) else {
-            return false   // macOS nego el permiso: el llamador debe avisar
+            userInfo: Unmanaged.passUnretained(self).toOpaque())
+        puedeConsumir = creado != nil
+        if creado == nil {
+            creado = CGEvent.tapCreate(
+                tap: .cgSessionEventTap,
+                place: .headInsertEventTap,
+                options: .listenOnly,
+                eventsOfInterest: CGEventMask(mask),
+                callback: callback,
+                userInfo: Unmanaged.passUnretained(self).toOpaque())
+        }
+        guard let t = creado else {
+            return false   // macOS nego los dos: el llamador debe avisar
         }
 
         tap = t
@@ -60,21 +104,23 @@ final class HotkeyListener {
         return CGEvent.tapIsEnabled(tap: t)
     }
 
-    private func handle(type: CGEventType, event: CGEvent) {
+    /// Devuelve `true` SOLO si la tecla se consume (⌥L / ⌥⇧L).
+    @discardableResult
+    private func handle(type: CGEventType, event: CGEvent) -> Bool {
         // Si macOS deshabilita el tap (timeout o entrada de usuario), revivirlo:
         // un tap apagado se ve identico a uno vivo, y la app quedaria sorda.
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let t = tap { CGEvent.tapEnable(tap: t, enable: true) }
-            return
+            return false
         }
-        guard type == .keyDown else { return }
+        guard type == .keyDown else { return false }
 
         let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
 
         if code == Config.vkEsc {
             if let cb = onOff { DispatchQueue.main.async { cb() } }
-            return
+            return false      // Esc es de todos: jamas se consume
         }
 
         // ⌥P: Option SI, Command/Control NO (⌘P es imprimir, no es lo nuestro)
@@ -82,7 +128,17 @@ final class HotkeyListener {
         let blocked = flags.contains(.maskCommand) || flags.contains(.maskControl)
         if code == Config.vkP && optionHeld && !blocked {
             if let cb = onCycle { DispatchQueue.main.async { cb() } }
+            return false      // ⌥P sigue llegando a la app de enfrente
         }
+
+        // ⌥L: el lapiz. Con ⇧, congela. Mismo criterio que ⌥P: Option SI,
+        // Command/Control NO — ⌘L es la barra de direcciones de medio mundo.
+        if code == Config.vkL && optionHeld && !blocked {
+            let cb = flags.contains(.maskShift) ? onCongelar : onLapiz
+            if let cb { DispatchQueue.main.async { cb() } }
+            return puedeConsumir   // la unica que se traga: si no, escribe "¬"
+        }
+        return false
     }
 }
 

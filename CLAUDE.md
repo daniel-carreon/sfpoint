@@ -1,18 +1,30 @@
 # CLAUDE.md — SFPoint
 
-> Para agentes IA. SFPoint v3 es un **puntero laser y nada mas**.
-> Si estas a punto de agregar una herramienta, una barra o un panel de ajustes:
-> no lo hagas. Todo eso se borro a proposito (v1 los tenia, nadie los uso, y
-> cada uno era superficie que podia romperse).
+> Para agentes IA. SFPoint tiene **DOS superficies y ningun panel de ajustes**:
+> el laser (`⌥P`) y la pizarra (`⌥L`). Si estas a punto de agregar una barra
+> flotante, un selector de color o una ventana de preferencias: no lo hagas. Todo
+> eso se borro a proposito en la v2 (v1 los tenia, nadie los uso, y cada uno era
+> superficie que podia romperse). Herramientas hay tres —lapiz, marcador, goma—
+> y se eligen con UNA tecla.
 
 ## Que es SFPoint
 
-Una app de barra de menu de macOS que dibuja un punto laser de neon sobre todo.
-`⌥P` cicla `apagado → ambar → morado → apagado`. `Esc` lo apaga.
-Esa es toda la superficie del producto.
+Una app de barra de menu de macOS con dos cosas encima de todo lo demas:
 
-- El overlay es **siempre click-through** (`ignoresMouseEvents = true`), jamas roba
-  el foco (`.nonactivatingPanel`), una ventana por pantalla.
+| | atajo | que hace |
+|---|---|---|
+| **Laser** | `⌥P` | cicla `apagado → ambar → morado → apagado`. Overlay click-through. |
+| **Pizarra** | `⌥L` | dibuja con presion e inclinacion de la tableta **sobre cualquier app**. `⌥⇧L` congela la tinta. |
+
+`Esc` apaga lo que este encendido.
+
+**Los dos modos son EXCLUYENTES**, y no por comodidad: el laser oculta el cursor
+y deja pasar el clic; la pizarra lo captura. Encender uno apaga el otro, y ese
+cruce vive SOLO en `AppDelegate` —el unico sitio que conoce a los dos— para que
+ninguno de los dos controladores tenga que saber del otro.
+
+- El overlay del laser es **siempre click-through** (`ignoresMouseEvents = true`),
+  jamas roba el foco (`.nonactivatingPanel`), una ventana por pantalla.
 - Colores: ambar `#F59E0B`, morado `#8C27F1`. El ripple del clic es siempre el
   color contrario al laser activo.
 
@@ -34,9 +46,104 @@ radial, mismas 3 pasadas de estela, mismas 4 capas del ripple, mismas constantes
 Verificado contra el motor Python pixel a pixel: **93% de pixeles identicos,
 diferencia media 0.12/255, cero pixeles con delta perceptible**.
 
-Lo unico que cambio a proposito: el **tope de la estela** pasó de plano
-(`.butt`, que dejaba escalones visibles entre segmentos) a redondeado
-(`.round`). Volver al original: `SFPOINT_TRAIL_CAP=butt`.
+## La estela: contorno, no segmentos (26 ago 2026)
+
+**El motor de la estela YA NO es el traducido de Qt.** Los dos motores viejos
+pintaban la estela trazando **un segmento por frame** con `setLineWidth` propio,
+y eso deja JUNTAS con alpha parcial:
+
+| motor | como se ve | luma media (escena `normal`) |
+|---|---|---|
+| `segmentos-butt` (el original de Qt) | **escalera** de peldaños en toda la estela | 0.00761 |
+| `segmentos-round` (default de v3, ago 21-25) | **collar de cuentas**: los topes se solapan y el alpha se compone dos veces | 0.01015 (**+33%**) |
+| **`contorno`** (default desde el 26 ago) | una cinta continua que adelgaza hacia la cola | 0.00716 |
+
+`TrailContour.swift` construye el CONTORNO de la estela (una curva cerrada, el
+centro remuestreado con Catmull-Rom y desplazado ±ancho/2 sobre su normal),
+recorta a el y pinta el desvanecido con **un solo gradiente**. Un relleno por
+capa ⇒ cero juntas. Misma leccion que el motor de tinta de sfmap: *un trazo de
+ancho variable es un poligono, no una pila de lineas.*
+
+Coste medido: 0.66–1.47 ms/frame contra 0.53–0.72 del trazo por segmento. A
+60 fps y solo mientras el laser esta encendido, cabe de sobra en el frame.
+
+Volver a un motor viejo para comparar: `SFPOINT_TRAIL_STYLE=butt` o `=round`
+(el nombre viejo `SFPOINT_TRAIL_CAP` sigue funcionando).
+
+⚠️ **Como se colo el defecto de las cuentas:** el `--selftest` que verifico el
+93% contra Qt usa UNA escena con las muestras a 6 px — la separacion mas
+pequeña, justo donde el solape de los topes queda tapado por el ancho de la
+linea. El artefacto vive a 12–30 px por frame, que es como se mueve un cursor
+de verdad. Una escena no es un banco: por eso ahora existe `--banco`.
+
+## El modo lapiz (v4, 29 ago 2026) — la pizarra sobre cualquier app
+
+**El motor de tinta NO se escribio aqui: se PORTO de sfmap**
+(`~/Developer/software/sfmap/Sources/SFMap/Tinta.swift`), donde esta calibrado
+contra **32 trazos reales de la Huion Kamvas 13 de Daniel** y verificado con un
+banco de 42 casos y tres rondas de critico ciego. `Tinta.swift` de este repo es
+una copia con **una sola diferencia**: la escalera de grosores entra por
+parametro en vez de venir de la barra de herramientas de sfmap.
+
+**Verificado, no supuesto:** los dos motores se compilaron por separado contra el
+mismo banco y se comparo la GEOMETRIA que producen —22,622 elementos de camino,
+16 casos— y salio **identica digito a digito**. Si el motor mejora en sfmap, se
+vuelve a portar; aqui no se le mete mano a ojo.
+
+### Como se usa
+
+| tecla | |
+|---|---|
+| `⌥L` | entrar / salir (al salir se limpia la tinta) |
+| `⌥⇧L` | **congelar**: la tinta se queda y el clic vuelve a las apps de abajo |
+| `Esc` | salir y limpiar |
+| `P` o `L` · `M` · `E` | lapiz · marcador (translucido) · goma |
+| `1..5` | morado · ambar · blanco · negro · rojo |
+| `[` `]` · rueda · dial de la tableta | grosor (escalera propia por instrumento) |
+| `⌘Z` / `⇧⌘Z` | deshacer / rehacer |
+| `C` o `⌫` | limpiar |
+| boton derecho | borra sin cambiar de herramienta |
+| **voltear la pluma** | la punta de goma de la Kamvas borra sola (`tabletProximity`) |
+
+### Decisiones que NO se cambian sin leer esto
+
+1. **La tinta vive en coordenadas GLOBALES de escritorio**, como el laser. Un
+   trazo que cruza de un monitor a otro no se parte: cada panel traslada por su
+   origen y pinta la parte que le toca.
+2. **El contorno se cachea en el `Trazo`**, no en un mapa con claves. sfmap si
+   tiene una `CacheTinta` porque sus trazos se mueven dentro de un documento;
+   aqui un trazo se dibuja, se borra entero o se limpia la pizarra. Portar esa
+   cache habria sido traerse la MATERIA de sfmap en vez del OFICIO.
+3. **La goma es de TRAZO, no de pixel**, y el disco que se pinta ES el radio que
+   borra (regla de sfmap). Una goma que promete un area y actua en otra obliga a
+   apuntar en vez de a pasar.
+4. **`NSEvent.isMouseCoalescingEnabled = false` mientras dura el trazo**, y se
+   restaura en `soltarGesto()`, por donde pasan TODAS las salidas —incluido
+   salirse con Esc a media linea—. En sfmap, por esa puerta, la fusion se quedaba
+   apagada el resto de la vida del proceso.
+5. **`isFloatingPanel = true` REESCRIBE el nivel de ventana a `.floating`.** El
+   `level` se asigna DESPUES o la pizarra queda empatada con el laser. No se ve a
+   ojo: lo caza `--pizarra-humo`.
+6. **El area de seguimiento se instala en `viewDidMoveToWindow`**, no en
+   `updateTrackingAreas`: AppKit solo llama a esa cuando hay que redibujar, y una
+   pizarra vacia no se redibuja nunca — el disco de la goma no seguia al cursor
+   hasta el primer trazo.
+7. **El rasterizador es UNO SOLO** (`PintorTinta.pintar`): la pantalla y el banco
+   de verificacion pintan con la misma funcion, o el banco mediria su propio
+   dibujante en vez del motor.
+8. **El HUD no es un panel de ajustes**: es un acuse que aparece al cambiar algo,
+   dice que quedo puesto y se va solo en 1.4 s. Sin el, un atajo de una letra es
+   fe ciega.
+
+### El presupuesto del fotograma (medido, no prometido)
+
+| | media | p95 |
+|---|---|---|
+| repintado COMPLETO de 48 trazos a 4K (peor caso absoluto) | 3.01 ms | 3.69 ms |
+| trazo VIVO de 160 muestras: motor + relleno | 0.08 ms | 0.12 ms |
+
+Presupuesto a 120 Hz: 8.3 ms. Y la pantalla real solo repinta el rectangulo
+sucio de la COLA del trazo, no la pizarra entera.
 
 ## Comandos
 
@@ -47,6 +154,12 @@ swift build -c release                 # solo compilar
 
 # verificacion sin abrir la app
 ./.build/release/SFPoint --selftest /tmp/out.png --color ambar
+./.build/release/SFPoint --pizarra-test          # modelo: goma, deshacer, escaleras
+./.build/release/SFPoint --pizarra-humo          # cableado REAL de AppKit, sin pintar nada
+./.build/release/SFPoint --banco-tinta /tmp/bt   # los 16 casos del banco de sfmap a PNG + tiempos
+./.build/release/SFPoint --permiso               # TCC: concedido o no
+./.build/release/SFPoint --tap-test              # que clase de tap dejo crear macOS
+./.build/release/SFPoint --banco /tmp/banco --color ambar   # 3 motores x 3 velocidades + hoja.png
 ./.build/release/SFPoint --demo 10 --color morado   # enciende el laser 10s
 ```
 
@@ -60,8 +173,13 @@ swift build -c release                 # solo compilar
    cada `CGDisplayHideCursor` y los deshace todos al apagar. Un contador
    desbalanceado deja al usuario sin cursor en TODO el sistema, sin recuperacion
    salvo reiniciar. `shutdown()` se llama siempre antes de salir.
-3. **El tap es `.listenOnly`.** Nunca se traga la tecla: ⌥P sigue llegando a la
-   app que este al frente.
+3. **El tap deja pasar TODO menos ⌥L y ⌥⇧L.** ⌥P, Esc y lo demas se reenvian
+   intactos a la app de enfrente. La excepcion tiene una razon medible: ⌥L
+   ESCRIBE `¬`, y abrir la pizarra encima de un editor le metia un caracter
+   basura al texto cada vez. Ademas el tap se crea en DOS intentos —consumir
+   teclas pide Accesibilidad, escucharlas pide Monitorizacion de entrada, son
+   permisos DISTINTOS— y si el primero falla se cae al de solo escucha en vez de
+   quedarse sordo: degradar, no morir.
 4. **El tap se revive solo.** Si macOS lo deshabilita por timeout, `handle()` lo
    vuelve a habilitar — un tap apagado se ve identico a uno vivo.
 5. **Solo se repinta el rectangulo sucio.** Apagado: cero timers, cero
@@ -77,7 +195,13 @@ Sources/SFPoint/
   LaserController.swift estado, trail, ripples, timer, cursor
   Hotkey.swift          CGEventTap + permisos TCC
   AppDelegate.swift     barra de menu, ciclo de vida, watchdog de permisos
-  SelfTest.swift        render headless a PNG con metricas
+  TrailContour.swift    la estela como contorno relleno (el motor vivo)
+  SelfTest.swift        render headless a PNG + banco de la estela (--banco)
+  Tinta.swift           EL MOTOR DE TINTA, portado de sfmap (no editar a ojo)
+  Pizarra.swift         modelo: trazo, instrumentos, historia, regla de la goma
+  PizarraOverlay.swift  panel/vista por pantalla: captura de pluma y pintado
+  PizarraController.swift  modo, teclas, goma, HUD
+  PizarraTest.swift     --pizarra-test · --pizarra-humo · --banco-tinta
   main.swift            entry point
 ```
 

@@ -58,6 +58,8 @@ enum Config {
     // MARK: - Atajo
     /// Codigo de tecla virtual de "p" en macOS.
     static let vkP: CGKeyCode = 35
+    /// "l" — el modo lapiz (⌥L). Con ⇧ ademas, congela la tinta.
+    static let vkL: CGKeyCode = 37
     static let vkEsc: CGKeyCode = 53
 
     // MARK: - Identidad

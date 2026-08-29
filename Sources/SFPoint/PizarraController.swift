@@ -400,6 +400,28 @@ final class PizarraController {
         guard !cmd else { return false }
 
         /*
+         * LA RUEDA DE LA TABLETA, ANTES QUE NADA Y SIN MIRAR MODIFICADORES.
+         *
+         * La rueda de Daniel está configurada en la app de Huion como
+         * **⌃, a la izquierda y ⌃. a la derecha** (captura del 29 ago). Con la
+         * rama de Control por delante mirando solo p/m/e, esas dos teclas caían
+         * al `default` y la rueda no hacía NADA: el mando decía que mandaba y no
+         * llegaba. Es el mismo orden que sfmap —allá `[ ] , .` se atienden antes
+         * y sin comprobar banderas— y la razón es la misma: una rueda de
+         * hardware puede venir con el modificador que su driver quiera, y lo que
+         * importa es la tecla.
+         *
+         * Y sube o baja el calibre del INSTRUMENTO QUE TENGAS: lápiz, marcador o
+         * goma, cada uno por su escalera. La rueda no elige herramienta, calibra
+         * la que está en la mano.
+         */
+        switch c {
+        case "[", ",": moverGrosor(pasos: -1); return true
+        case "]", ".": moverGrosor(pasos: 1);  return true
+        default: break
+        }
+
+        /*
          * ⌃P LÁPIZ · ⌃M MARCADOR · ⌃E GOMA — LOS MISMOS QUE SFMAP.
          *
          * Daniel tiene los botones del lápiz físico de la Kamvas configurados
@@ -444,11 +466,6 @@ final class PizarraController {
         // Esconde la paleta sin salir del modo: cuando la cámara está grabando,
         // una barra flotante en cuadro es basura visual. Vuelve con la misma tecla.
         case "h":      paleta.alternarVisible(en: ventanaBajoElPuntero()?.screen); return true
-        // La rueda de abajo de la Huion puede mandar `[ ]` o `, .` según cómo
-        // esté mapeada en su app. sfmap acepta las cuatro; aquí también, o el
-        // mismo dial haría cosas distintas en cada app.
-        case "[", ",":  moverGrosor(pasos: -1); return true
-        case "]", ".":  moverGrosor(pasos: 1);  return true
         case "1", "2", "3", "4", "5":
             if let n = Int(c), let col = TintaColor(rawValue: n - 1) { elegir(col) }
             return true

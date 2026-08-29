@@ -107,7 +107,7 @@ vuelve a portar; aqui no se le mete mano a ojo.
 | clic en la herramienta ACTIVA | abre sus opciones (los 2 modos de goma · la escalera) |
 | `1..5` | morado · ambar · blanco · negro · rojo |
 | clic en el disco de la paleta | abre la ESCALERA entera (9 lapiz · 6 marcador · 5 goma) |
-| `[` `]` · `,` `.` · rueda · dial | grosor, un peldaño (los cuatro mapeos del driver de Huion) |
+| `[` `]` · `,` `.` · **`⌃,` `⌃.`** · rueda | grosor, un peldaño — del instrumento que tengas en la mano |
 | **`⌃P` · `⌃M` · `⌃E`** | lapiz · marcador · goma — **los botones del lapiz fisico**, iguales a sfmap |
 | `⌘Z` / `⇧⌘Z` | deshacer / rehacer (los dos también en la paleta) |
 | `C` o `⌫` | limpiar |
@@ -177,6 +177,15 @@ vuelve a portar; aqui no se le mete mano a ojo.
    Daniel preguntando *"¿que hace el copo de nieve?"*: un icono que hay que
    preguntar no comunica, y ninguno tiene hueco para una palabra. El rotulo dice
    el nombre Y la tecla, que es como se aprende a dejar de usar la barra.
+10b. **LA RUEDA SE ATIENDE ANTES QUE LA RAMA DE CONTROL, y sin mirar
+   modificadores.** La rueda de Daniel esta configurada en la app de Huion como
+   **⌃, izquierda / ⌃. derecha** (captura del 29 ago). Con la rama de Control
+   por delante mirando solo p/m/e, esas dos teclas caian al `default` y **la
+   rueda no hacia nada**: el mando decia que mandaba y no llegaba. Una rueda de
+   hardware viene con el modificador que su driver quiera; lo que importa es la
+   TECLA. Mismo orden que sfmap. Y calibra el INSTRUMENTO ACTIVO —lapiz,
+   marcador o goma, cada uno por su escalera—: la rueda no elige herramienta,
+   calibra la que esta en la mano.
 11. **LOS COMANDOS DE TABLETA SON LOS DE SFMAP, no unos parecidos.** `⌃P/⌃M/⌃E`
    (los botones del lapiz fisico de la Kamvas, con CONTROL porque una tableta
    manda su combinacion sin que haya un dedo cerca del teclado) y las cuatro

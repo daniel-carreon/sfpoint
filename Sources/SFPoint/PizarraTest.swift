@@ -467,6 +467,29 @@ extension PizarraTest {
         check("y también con . (el otro mapeo del driver)", ctrl.grosorActual > g0)
         ctrl.ponerGrosor(g0)
 
+        // LA RUEDA REAL DE DANIEL: ⌃. a la derecha, ⌃, a la izquierda.
+        tecla(".", 47, .control)
+        let gc = ctrl.grosorActual
+        check("⌃. (rueda a la derecha) sube el calibre", gc > g0, "\(g0) → \(gc)")
+        tecla(",", 43, .control)
+        check("⌃, (rueda a la izquierda) lo baja", ctrl.grosorActual == g0)
+
+        // Y calibra EL INSTRUMENTO QUE TENGAS, no solo el lápiz.
+        ctrl.elegir(.goma)
+        let gg0 = ctrl.grosorActual
+        tecla(".", 47, .control)
+        let gg1 = ctrl.grosorActual
+        tecla(",", 43, .control)
+        check("la misma rueda calibra la GOMA", gg1 > gg0 && ctrl.grosorActual == gg0,
+              "\(gg0) → \(gg1) → \(ctrl.grosorActual)")
+        ctrl.elegir(.marcador)
+        let gm0 = ctrl.grosorActual
+        tecla(".", 47, .control)
+        check("y el MARCADOR", ctrl.grosorActual > gm0,
+              "\(gm0) → \(ctrl.grosorActual)")
+        ctrl.ponerGrosor(gm0)
+        ctrl.elegir(.lapiz)
+
         // ── la tira de grosores ────────────────────────────────────────────
         check("la tira nace cerrada", !ctrl.paleta.tira.estaAbierta)
         ctrl.paleta.tira.abrir(ancla: CGRect(x: pantalla.frame.midX, y: pantalla.frame.minY + 80,

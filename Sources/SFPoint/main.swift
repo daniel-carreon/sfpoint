@@ -38,6 +38,10 @@ struct SFPointApp {
             h.stop()
             exit(ok ? 0 : 1)
         }
+        if let i = args.firstIndex(of: "--goma-png") {
+            let out = (i + 1 < args.count && !args[i+1].hasPrefix("--")) ? args[i+1] : "/tmp/sfpoint-goma.png"
+            exit(MainActor.assumeIsolated { PizarraTest.gomaPNG(out) })
+        }
         if let i = args.firstIndex(of: "--paleta-png") {
             let out = (i + 1 < args.count && !args[i+1].hasPrefix("--")) ? args[i+1] : "/tmp/sfpoint-paleta.png"
             let app = NSApplication.shared

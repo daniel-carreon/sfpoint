@@ -250,6 +250,36 @@ enum PizarraTest {
         let marca = Trazo(puntos: a.puntos, color: Config.ambar, grosor: 26, marcador: true)
         check("el marcador es translúcido", marca.alpha < 0.5 && a.alpha == 1.0)
 
+        // ── LA GOMA PARCIAL: el corte ───────────────────────────────────────
+        let recto = recta(0, 0, 200, 0, n: 40)
+        let dos = Pizarra.partir(recto.puntos, centro: CGPoint(x: 100, y: 0), radio: 20)
+        check("cortar por el medio deja DOS pedazos", dos.count == 2, "\(dos.count)")
+        if dos.count == 2 {
+            let finIzq = dos[0].last!, iniDer = dos[1].first!
+            check("el corte cae en el BORDE del disco, no en la muestra vecina",
+                  abs(hypot(finIzq.x - 100, finIzq.y) - 20) < 0.001
+                  && abs(hypot(iniDer.x - 100, iniDer.y) - 20) < 0.001,
+                  String(format: "%.3f / %.3f", hypot(finIzq.x - 100, finIzq.y),
+                         hypot(iniDer.x - 100, iniDer.y)))
+            check("el cabo hereda una presión interpolada, no la del vecino",
+                  finIzq.p > 0.15 && finIzq.p < 0.6, String(format: "%.3f", finIzq.p))
+        }
+        let porLaPunta = Pizarra.partir(recto.puntos, centro: CGPoint(x: 0, y: 0), radio: 30)
+        check("cortar por la punta deja UNO", porLaPunta.count == 1, "\(porLaPunta.count)")
+        let todoDentro = Pizarra.partir(recto.puntos, centro: CGPoint(x: 100, y: 0), radio: 500)
+        check("un disco que lo cubre todo no deja nada", todoDentro.isEmpty)
+        let sinTocar = Pizarra.partir(recto.puntos, centro: CGPoint(x: 100, y: 900), radio: 20)
+        check("un disco que no toca lo deja intacto",
+              sinTocar.count == 1 && sinTocar[0].count == recto.puntos.count)
+
+        let q = Pizarra()
+        q.agregar(recto)
+        check("cortar de verdad sustituye el trazo por sus pedazos",
+              q.cortar(centro: CGPoint(x: 100, y: 0), radio: 20) && q.trazos.count == 2,
+              "\(q.trazos.count) trazos")
+        check("y no toca nada si el disco pasa lejos",
+              !q.cortar(centro: CGPoint(x: 100, y: 900), radio: 20) && q.trazos.count == 2)
+
         // Un toque de pluma deja tinta (el motor viejo dejaba la nada).
         let toque = Trazo(puntos: [PuntoTinta(x: 10, y: 10, p: 0.0)], color: Config.morado,
                           grosor: 6, marcador: false)
@@ -414,6 +444,19 @@ extension PizarraTest {
         check("⌃E → goma", ctrl.instrumentoEfectivo == .goma)
         tecla("p", 35, .control)
 
+        // E con la goma puesta ALTERNA de goma (patrón Freeform/GoodNotes);
+        // ⌃E, que es el botón del lápiz físico, jamás cambia de significado.
+        tecla("e", 14)
+        let m0 = ctrl.modoGoma
+        tecla("e", 14)
+        check("E otra vez alterna el modo de goma", ctrl.modoGoma != m0,
+              "\(m0.nombre) → \(ctrl.modoGoma.nombre)")
+        tecla("e", 14, .control)
+        check("⌃E NO cicla: siempre goma, mismo modo", ctrl.instrumentoEfectivo == .goma
+              && ctrl.modoGoma != m0)
+        ctrl.ponerModoGoma(.parcial)
+        tecla("p", 35, .control)
+
         let g0 = ctrl.grosorActual
         tecla("]", 30)
         let g1 = ctrl.grosorActual
@@ -432,19 +475,43 @@ extension PizarraTest {
         ctrl.paleta.cerrarTira()
         ctrl.elegir(.goma)   // el bloque de arriba dejó el lápiz: se devuelve la goma
 
-        if let e0 = evento(.leftMouseDown, base.x + 130, base.y + 90, 0.5, 1) {
-            vista.mouseDown(with: e0)
+        /// Un tachón de goma cruzando el trazo, por la puerta real.
+        func pasarLaGoma() {
+            if let e0 = evento(.leftMouseDown, base.x + 130, base.y + 120, 0.5, 1) {
+                vista.mouseDown(with: e0)
+            }
+            for k in 1...6 {
+                let y = base.y + 120 - CGFloat(k) * 20
+                if let e = evento(.leftMouseDragged, base.x + 130, y, 0.5, 1 + Double(k) * 0.01) {
+                    vista.mouseDragged(with: e)
+                }
+            }
+            if let e2 = evento(.leftMouseUp, base.x + 130, base.y, 0.0, 1.1) {
+                vista.mouseUp(with: e2)
+            }
         }
-        if let e1 = evento(.leftMouseDragged, base.x + 130, base.y + 60, 0.5, 1.01) {
-            vista.mouseDragged(with: e1)
-        }
-        if let e2 = evento(.leftMouseUp, base.x + 130, base.y + 60, 0.0, 1.02) {
-            vista.mouseUp(with: e2)
-        }
-        check("la goma se llevó el trazo", ctrl.pizarra.trazos.isEmpty,
+
+        // MODO PARCIAL: parte el trazo y deja los cabos.
+        ctrl.ponerModoGoma(.parcial)
+        let puntosAntes = ctrl.pizarra.trazos.reduce(0) { $0 + $1.puntos.count }
+        pasarLaGoma()
+        let pedazos = ctrl.pizarra.trazos.count
+        let puntosDespues = ctrl.pizarra.trazos.reduce(0) { $0 + $1.puntos.count }
+        check("la goma PARCIAL parte el trazo y deja los cabos", pedazos == 2,
+              "\(pedazos) pedazos")
+        check("y se llevó tinta de en medio", puntosDespues < puntosAntes,
+              "\(puntosAntes) → \(puntosDespues) muestras")
+        ctrl.pizarra.deshacer()
+        check("deshacer devuelve el trazo entero", ctrl.pizarra.trazos.count == 1)
+
+        // MODO TRAZO: el mismo gesto se lo lleva completo.
+        ctrl.ponerModoGoma(.trazo)
+        pasarLaGoma()
+        check("la goma de TRAZO ENTERO se lo lleva completo", ctrl.pizarra.trazos.isEmpty,
               "\(ctrl.pizarra.trazos.count) quedaron")
         ctrl.pizarra.deshacer()
         check("y deshacer lo devolvió", ctrl.pizarra.trazos.count == 1)
+        ctrl.ponerModoGoma(.parcial)
 
         ctrl.salir()
         check("al salir no queda tinta ni ventanas visibles",
@@ -555,6 +622,81 @@ extension PizarraTest {
         else { return 1 }
         try? png.write(to: URL(fileURLWithPath: salida))
         print("paleta → \(salida)")
+        return 0
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// MARK: la goma, a PNG
+// ════════════════════════════════════════════════════════════════════════════
+
+extension PizarraTest {
+
+    /// Los dos modos, sobre la MISMA tinta: original · goma parcial · trazo
+    /// entero. Un corte geométrico se juzga mirándolo: hay que ver que los
+    /// cabos se rematan como trazos y no como muñones.
+    @MainActor
+    static func gomaPNG(_ salida: String) -> Int32 {
+        guard let casos = cargar(bancoPorDefecto),
+              let firma = casos.first(where: { $0.nombre == "real-completo" })
+                          ?? casos.first else { return 1 }
+
+        let filas: [(String, (Pizarra) -> Void)] = [
+            ("original", { _ in }),
+            ("goma parcial", { p in
+                // Un barrido horizontal por media hoja, como pasaría la mano.
+                let caja = p.trazos.reduce(CGRect.null) { $0.union($1.caja) }
+                var x = caja.minX
+                while x < caja.maxX {
+                    p.cortar(centro: CGPoint(x: x, y: caja.midY), radio: 14)
+                    x += 7
+                }
+            }),
+            ("trazo entero", { p in
+                let caja = p.trazos.reduce(CGRect.null) { $0.union($1.caja) }
+                var x = caja.minX
+                while x < caja.maxX {
+                    let tocados = p.alcanzados(centro: CGPoint(x: x, y: caja.midY), radio: 14)
+                    p.quitar(tocados)
+                    x += 7
+                }
+            }),
+        ]
+
+        let caja = firma.trazos.reduce(CGRect.null) { $0.union($1.caja) }.insetBy(dx: -14, dy: -14)
+        let w = Int(caja.width), h = Int(caja.height) * filas.count + 12 * filas.count
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
+                                  bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return 1 }
+        ctx.setFillColor(CGColor(srgbRed: 0.10, green: 0.10, blue: 0.12, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.setShouldAntialias(true)
+
+        var y = CGFloat(h) - caja.height - 6
+        for (nombre, hacer) in filas {
+            let p = Pizarra()
+            for t in firma.trazos {
+                p.agregar(Trazo(puntos: t.puntos, color: t.color, grosor: t.grosor,
+                                marcador: t.marcador))
+            }
+            hacer(p)
+            ctx.saveGState()
+            ctx.translateBy(x: -caja.minX, y: y - caja.minY)
+            for t in p.trazos {
+                guard let cam = t.camino else { continue }
+                PintorTinta.pintar(cam, color: t.color, alpha: t.alpha, en: ctx)
+            }
+            ctx.restoreGState()
+            print("  \(nombre): \(p.trazos.count) trazos")
+            y -= caja.height + 12
+        }
+
+        guard let img = ctx.makeImage(),
+              let png = NSBitmapImageRep(cgImage: img).representation(using: .png, properties: [:])
+        else { return 1 }
+        try? png.write(to: URL(fileURLWithPath: salida))
+        print("goma → \(salida)")
         return 0
     }
 }

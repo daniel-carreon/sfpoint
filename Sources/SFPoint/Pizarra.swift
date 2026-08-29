@@ -48,6 +48,35 @@ enum Instrumento: Int, CaseIterable {
     }
 }
 
+/**
+ * LOS DOS MODOS DE LA GOMA.
+ *
+ * No son un ajuste: son dos gestos distintos que la mano ya conoce de otras
+ * apps, y ninguno sustituye al otro.
+ *
+ *  · `parcial` — la goma de verdad: se lleva SOLO el pedazo de trazo por el que
+ *    pasas y deja el resto. Es lo que quieres para abrir un hueco en una llave,
+ *    limpiar el rabo de una letra o corregir medio subrayado.
+ *  · `trazo` — el borrador de componentes: roza un trazo y se va ENTERO. Es lo
+ *    que quieres cuando el garabato sobra completo y no quieres perseguirlo.
+ *
+ * El corte es GEOMÉTRICO, no de píxeles: el trazo se parte en los pedazos que
+ * quedan fuera del disco, cada uno con su presión y su inclinación intactas. Un
+ * borrado de píxeles obligaría a rasterizar la pizarra y con eso se irían el
+ * deshacer, el motor de tinta y la garantía de que el trazo vivo y el guardado
+ * son el mismo dibujo.
+ */
+enum ModoGoma: Int, CaseIterable {
+    case parcial, trazo
+
+    var nombre: String { self == .parcial ? "Goma" : "Trazo entero" }
+    var ayuda: String {
+        self == .parcial ? "Borra solo por donde pasas" : "Roza un trazo y se va entero"
+    }
+    var simbolo: String { self == .parcial ? "eraser" : "eraser.line.dashed" }
+    var otro: ModoGoma { self == .parcial ? .trazo : .parcial }
+}
+
 /// La paleta. Cinco y no más: sobre una pantalla ajena hacen falta los dos
 /// colores de marca, blanco y negro (según lo que haya debajo) y un rojo para
 /// señalar. Un selector de color entero sería el panel de ajustes que el
@@ -188,6 +217,128 @@ final class Pizarra {
         guard !trazos.isEmpty else { return }
         recordar()
         trazos.removeAll()
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // MARK: el corte — la goma parcial
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Se lleva el PEDAZO de trazo que cae dentro del disco y conserva el resto.
+     *
+     * Cada trazo tocado se sustituye por los tramos que quedan fuera. El corte
+     * se hace en el punto EXACTO donde la línea entra y sale del círculo
+     * —interpolando posición, presión, inclinación y tiempo— y no en la muestra
+     * más cercana: con muestras a 20 unidades de distancia, cortar por muestras
+     * deja mordidas de dos dedos donde pasó una goma de uno.
+     *
+     * Los cabos que quedan pasan por el mismo motor de tinta, así que se afilan
+     * y se rematan como cualquier otro trazo. Por eso un trazo cortado no se ve
+     * "roto": se ve como dos trazos.
+     */
+    @discardableResult
+    func cortar(centro: CGPoint, radio: Double) -> Bool {
+        var cambio = false
+        var salida: [Trazo] = []
+        salida.reserveCapacity(trazos.count)
+
+        for t in trazos {
+            // Descarte barato: si el disco ni roza su caja, el trazo sigue igual.
+            guard t.caja.insetBy(dx: -radio, dy: -radio).contains(centro) else {
+                salida.append(t); continue
+            }
+            let pedazos = Pizarra.partir(t.puntos, centro: centro, radio: radio)
+            if pedazos.count == 1 && pedazos[0].count == t.puntos.count {
+                salida.append(t); continue      // no lo tocó de verdad
+            }
+            cambio = true
+            for trozo in pedazos where trozo.count >= 1 {
+                salida.append(Trazo(puntos: trozo, color: t.color,
+                                    grosor: t.grosor, marcador: t.marcador))
+            }
+        }
+        if cambio { trazos = salida }
+        return cambio
+    }
+
+    /// Los tramos de la polilínea que quedan FUERA del círculo, cortados en el
+    /// cruce exacto. Es puro para poder probarlo sin pantalla.
+    static func partir(_ pts: [PuntoTinta], centro: CGPoint, radio: Double) -> [[PuntoTinta]] {
+        func dentro(_ q: PuntoTinta) -> Bool {
+            hypot(q.x - centro.x, q.y - centro.y) <= radio
+        }
+        guard pts.count > 1 else { return dentro(pts[0]) ? [] : [pts] }
+
+        var out: [[PuntoTinta]] = []
+        var actual: [PuntoTinta] = []
+
+        for i in 0..<(pts.count - 1) {
+            let a = pts[i], b = pts[i + 1]
+            let da = dentro(a), db = dentro(b)
+
+            if !da && actual.isEmpty { actual.append(a) }
+
+            if da == db {
+                if !da { actual.append(b) }          // los dos fuera: sigue el tramo
+                else if !actual.isEmpty { out.append(actual); actual = [] }
+                // ⚠️ los dos DENTRO puede aún cruzar el borde? No: el disco es
+                // convexo, así que si los extremos están dentro, todo el
+                // segmento lo está.
+                continue
+            }
+
+            // Cruza el borde: se busca dónde, y se corta ahí.
+            let ts = cruces(a, b, centro: centro, radio: radio)
+            if da {
+                // Sale del disco: el tramo nuevo empieza en el cruce de SALIDA.
+                if let t = ts.last {
+                    actual = [interpolar(a, b, t), b]
+                } else {
+                    actual = [b]
+                }
+            } else {
+                // Entra al disco: el tramo se cierra en el cruce de ENTRADA.
+                if let t = ts.first { actual.append(interpolar(a, b, t)) }
+                if actual.count >= 1 { out.append(actual) }
+                actual = []
+            }
+        }
+        if !dentro(pts[pts.count - 1]) || !actual.isEmpty {
+            if actual.isEmpty { actual = [pts[pts.count - 1]] }
+            out.append(actual)
+        }
+        // Un cabo de un solo punto es una mota: se queda solo si de verdad era
+        // un toque suelto, no si es la esquirla de un corte.
+        return out.filter { $0.count >= 2 }
+    }
+
+    /// Los parámetros donde el segmento cruza la circunferencia, ordenados.
+    private static func cruces(_ a: PuntoTinta, _ b: PuntoTinta,
+                               centro: CGPoint, radio: Double) -> [Double] {
+        let dx = b.x - a.x, dy = b.y - a.y
+        let fx = a.x - centro.x, fy = a.y - centro.y
+        let A = dx * dx + dy * dy
+        guard A > 1e-12 else { return [] }
+        let B = 2 * (fx * dx + fy * dy)
+        let C = fx * fx + fy * fy - radio * radio
+        let disc = B * B - 4 * A * C
+        guard disc >= 0 else { return [] }
+        let r = disc.squareRoot()
+        return [(-B - r) / (2 * A), (-B + r) / (2 * A)]
+            .filter { $0 >= 0 && $0 <= 1 }
+            .sorted()
+    }
+
+    /// El punto intermedio con TODO interpolado: si solo se interpolara la
+    /// posición, el cabo del corte nacería con la presión del vecino y se vería
+    /// un escalón de grosor justo en el borde de la goma.
+    private static func interpolar(_ a: PuntoTinta, _ b: PuntoTinta, _ t: Double) -> PuntoTinta {
+        func m(_ x: Double, _ y: Double) -> Double { x + (y - x) * t }
+        var q = PuntoTinta(x: m(a.x, b.x), y: m(a.y, b.y), p: m(a.p, b.p))
+        q.ix = m(a.ix, b.ix)
+        q.iy = m(a.iy, b.iy)
+        q.t = (a.t >= 0 && b.t >= 0) ? m(a.t, b.t) : -1
+        return q
     }
 
     /// Abre un paso de deshacer que se cerrará con varios cambios dentro (el

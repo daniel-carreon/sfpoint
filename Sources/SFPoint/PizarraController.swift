@@ -34,6 +34,13 @@ final class PizarraController {
         .goma: Instrumento.goma.grosorPorDefecto,
     ]
 
+    /**
+     * Con qué goma. `parcial` de fábrica: una goma que se lleva el trazo entero
+     * al primer roce sorprende a la mano, y la sorpresa en una goma se paga
+     * borrando algo que no querías.
+     */
+    private(set) var modoGoma: ModoGoma = .parcial
+
     /// La pluma volteada manda sobre la herramienta elegida, mientras dure.
     var plumaVolteada = false {
         didSet {
@@ -54,6 +61,10 @@ final class PizarraController {
     private var inicioTrazo: TimeInterval = 0
     private var borrando = false
     private var borroAlgo = false
+    /// Dónde estaba la goma en el evento anterior. La goma no borra en puntos,
+    /// BARRE: entre dos eventos la mano recorre 20 o 40 unidades y aplicar el
+    /// disco solo donde cae cada evento deja islas de tinta sin tocar.
+    private var ultimoBorrado: CGPoint?
     var punteroGlobal: CGPoint?
 
     /// Se apaga la fusión de eventos mientras dura el trazo para que la Kamvas
@@ -208,6 +219,7 @@ final class PizarraController {
         if borrando {
             pizarra.abrirPaso()
             borroAlgo = false
+            ultimoBorrado = p
             borrar(en: p)
             return
         }
@@ -262,6 +274,7 @@ final class PizarraController {
         puntos.removeAll()
         trazoVivo = nil
         borrando = false
+        ultimoBorrado = nil
     }
 
     private func actualizarVivo() {
@@ -306,17 +319,57 @@ final class PizarraController {
 
     private func borrar(en p: CGPoint) {
         let r = grosorGoma / 2
-        let tocados = pizarra.alcanzados(centro: p, radio: r)
-        guard !tocados.isEmpty else { return }
-        var zona = CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)
-        for t in pizarra.trazos where tocados.contains(ObjectIdentifier(t)) {
-            zona = zona.union(t.caja)
+        let desde = ultimoBorrado ?? p
+        ultimoBorrado = p
+
+        // EL BARRIDO. Se aplica el disco a pasos de medio radio entre el evento
+        // anterior y éste, así que la goma se comporta como una cápsula y no
+        // como una ristra de círculos sueltos. Con la pluma sin coalescer los
+        // pasos casi siempre son uno; con el ratón a 60 Hz, tres o cuatro.
+        let dist = hypot(p.x - desde.x, p.y - desde.y)
+        let pasos = max(1, Int(ceil(dist / max(1.0, r / 2))))
+
+        var zona = CGRect.null
+        var cambio = false
+
+        for i in 1...pasos {
+            let t = Double(i) / Double(pasos)
+            let c = CGPoint(x: desde.x + (p.x - desde.x) * t,
+                            y: desde.y + (p.y - desde.y) * t)
+            let disco = CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)
+
+            // Qué trazos toca, ANTES de tocarlos: hay que repintar su caja
+            // entera, no solo el disco. Cortar un trazo cambia el afilado de los
+            // cabos, que vive en el 45% de cada pedazo — repintar solo el
+            // agujero dejaría el resto del trazo con el grosor de antes.
+            let tocados = pizarra.alcanzados(centro: c, radio: r)
+            guard !tocados.isEmpty else { continue }
+            for t in pizarra.trazos where tocados.contains(ObjectIdentifier(t)) {
+                zona = zona.union(t.caja)
+            }
+            zona = zona.union(disco)
+
+            let hubo = modoGoma == .trazo
+                ? pizarra.quitar(tocados)
+                : pizarra.cortar(centro: c, radio: r)
+            cambio = cambio || hubo
         }
-        if pizarra.quitar(tocados) {
+
+        if cambio {
             borroAlgo = true
             repintar(zona)
             paleta.refrescar()
         }
+    }
+
+    /// Cambiar de goma. Es lo que hace volver a pulsar `E` con la goma ya
+    /// puesta, y lo que eligen las dos casillas de la tira.
+    func ponerModoGoma(_ m: ModoGoma) {
+        guard m != modoGoma else { return }
+        modoGoma = m
+        paleta.refrescar()
+        repintarPunteroYAviso()
+        avisar("\(m.nombre) · \(m.ayuda.lowercased())")
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -369,7 +422,23 @@ final class PizarraController {
         switch c {
         case "p", "l": elegir(.lapiz);    return true
         case "m":      elegir(.marcador); return true
-        case "e":      elegir(.goma);     return true
+        /*
+         * `E` CON LA GOMA YA PUESTA CAMBIA DE GOMA.
+         *
+         * Es la convención de las apps que se usan con lápiz —en Freeform y en
+         * GoodNotes, volver a tocar la herramienta activa abre o cicla sus
+         * opciones— y aquí ahorra el viaje a la paleta sin inventar un atajo
+         * nuevo que memorizar. La primera pulsación elige goma; las siguientes
+         * alternan parcial ↔ trazo entero.
+         *
+         * ⚠️ `⌃E` NO cicla: ése es el botón del lápiz físico y tiene que hacer
+         * SIEMPRE lo mismo (paridad con sfmap). Un botón de hardware que cambia
+         * de significado al segundo apretón es una trampa.
+         */
+        case "e":
+            if instrumentoEfectivo == .goma { ponerModoGoma(modoGoma.otro) }
+            else { elegir(.goma) }
+            return true
         case "c":      limpiar();         return true
         case "f":      alternarCongelado(); return true
         // Esconde la paleta sin salir del modo: cuando la cámara está grabando,
@@ -396,7 +465,8 @@ final class PizarraController {
         if modo == .congelada { entrar() }
         instrumento = i
         plumaVolteada = false
-        avisar("\(i.nombre) · \(Int(grosorActual))")
+        avisar(i == .goma ? "\(modoGoma.nombre) · \(Int(grosorActual))"
+                          : "\(i.nombre) · \(Int(grosorActual))")
         repintarPunteroYAviso()
         paleta.refrescar()
     }

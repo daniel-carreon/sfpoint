@@ -103,6 +103,8 @@ vuelve a portar; aqui no se le mete mano a ojo.
 | `⌥⇧L` | **congelar**: la tinta se queda y el clic vuelve a las apps de abajo |
 | `Esc` | salir y limpiar |
 | `P` o `L` · `M` · `E` | lapiz · marcador (translucido) · goma |
+| `E` con la goma puesta | alterna **goma parcial ↔ trazo entero** |
+| clic en la herramienta ACTIVA | abre sus opciones (los 2 modos de goma · la escalera) |
 | `1..5` | morado · ambar · blanco · negro · rojo |
 | clic en el disco de la paleta | abre la ESCALERA entera (9 lapiz · 6 marcador · 5 goma) |
 | `[` `]` · `,` `.` · rueda · dial | grosor, un peldaño (los cuatro mapeos del driver de Huion) |
@@ -126,9 +128,30 @@ vuelve a portar; aqui no se le mete mano a ojo.
    tiene una `CacheTinta` porque sus trazos se mueven dentro de un documento;
    aqui un trazo se dibuja, se borra entero o se limpia la pizarra. Portar esa
    cache habria sido traerse la MATERIA de sfmap en vez del OFICIO.
-3. **La goma es de TRAZO, no de pixel**, y el disco que se pinta ES el radio que
-   borra (regla de sfmap). Una goma que promete un area y actua en otra obliga a
-   apuntar en vez de a pasar.
+3. **LA GOMA TIENE DOS MODOS, y el disco que se pinta ES el radio que borra**
+   (regla de sfmap: una goma que promete un area y actua en otra obliga a
+   apuntar en vez de a pasar).
+   · `parcial` (el de fabrica) — se lleva SOLO el pedazo por el que pasas. El
+     corte es GEOMETRICO: el trazo se parte en los tramos que quedan fuera del
+     disco, cortando en el punto EXACTO donde la linea cruza la circunferencia e
+     interpolando posicion, presion, inclinacion y tiempo. Cortar por la muestra
+     mas cercana dejaria mordidas de dos dedos donde paso una goma de uno. Los
+     cabos pasan por el mismo motor, asi que se rematan como trazos y no como
+     muñones. **Nunca se rasteriza**: un borrado de pixeles se llevaria el
+     deshacer, el motor de tinta y la garantia de que el trazo vivo y el
+     guardado son el mismo dibujo.
+   · `trazo` — roza y se lo lleva entero.
+   **Como se cambia (convencion, no invento):** volver a pulsar `E` con la goma
+   puesta alterna, y volver a tocar la herramienta ACTIVA en la paleta abre sus
+   opciones — es lo que hacen Freeform, GoodNotes y Procreate. `⌃E` NO cicla:
+   es el boton del lapiz fisico y un boton de hardware que cambia de significado
+   al segundo apreton es una trampa.
+   **Se ve cual esta puesta ANTES de tocar tinta:** disco CONTINUO = parcial,
+   PUNTEADO = trazo entero, y el icono de la paleta cambia con el modo.
+3b. **La goma BARRE, no puntea.** Entre dos eventos la mano recorre 20-40
+   unidades; aplicar el disco solo donde cae cada evento dejaba islas de tinta
+   sin tocar. Se aplica a pasos de medio radio entre el evento anterior y este,
+   asi que se comporta como una capsula.
 4. **`NSEvent.isMouseCoalescingEnabled = false` mientras dura el trazo**, y se
    restaura en `soltarGesto()`, por donde pasan TODAS las salidas —incluido
    salirse con Esc a media linea—. En sfmap, por esa puerta, la fusion se quedaba
@@ -198,7 +221,8 @@ swift build -c release                 # solo compilar
 ./.build/release/SFPoint --banco-tinta /tmp/bt   # los 16 casos del banco de sfmap a PNG + tiempos
 ./.build/release/SFPoint --permiso               # TCC: concedido o no
 ./.build/release/SFPoint --tap-test              # que clase de tap dejo crear macOS
-./.build/release/SFPoint --paleta-png /tmp/p.png # la paleta en 3 estados, a PNG
+./.build/release/SFPoint --paleta-png /tmp/p.png # la paleta en 3 estados + las 3 tiras
+./.build/release/SFPoint --goma-png /tmp/g.png  # los 2 modos sobre la misma tinta
 ./.build/release/SFPoint --banco /tmp/banco --color ambar   # 3 motores x 3 velocidades + hoja.png
 ./.build/release/SFPoint --demo 10 --color morado   # enciende el laser 10s
 ```

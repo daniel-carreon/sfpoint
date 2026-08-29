@@ -122,7 +122,32 @@ final class TiraVista: NSView, NSViewToolTipOwner {
     private let casilla: CGFloat = 36
     private let pad: CGFloat = 9
     private let alto: CGFloat = 52
+    private let sep: CGFloat = 12
     private var sobre: Int? = nil
+
+    /**
+     * La tira no es solo grosores: son LAS OPCIONES DEL INSTRUMENTO.
+     *
+     * Con la goma puesta, delante de la escalera aparecen sus dos modos —goma
+     * parcial y trazo entero—. Es el patrón de Freeform y GoodNotes: la
+     * herramienta activa, tocada otra vez, enseña lo suyo. Un panel aparte
+     * "modo de goma" sería el ajuste que esta app no tiene.
+     */
+    private enum Celda: Equatable {
+        case modo(ModoGoma)
+        case grosor(Double)
+    }
+
+    private var celdas: [Celda] {
+        var c: [Celda] = []
+        if (ctrl?.instrumentoEfectivo ?? .lapiz) == .goma {
+            c += ModoGoma.allCases.map { Celda.modo($0) }
+        }
+        c += escalera.map { Celda.grosor($0) }
+        return c
+    }
+
+    private var hayModos: Bool { (ctrl?.instrumentoEfectivo ?? .lapiz) == .goma }
 
     /// La escalera pintada, con su selección animada. Ver `Animador`.
     private let deslizador = Animador()
@@ -130,21 +155,30 @@ final class TiraVista: NSView, NSViewToolTipOwner {
     private var escalera: [Double] { (ctrl?.instrumentoEfectivo ?? .lapiz).escalera }
 
     var tamano: NSSize {
-        NSSize(width: CGFloat(escalera.count) * casilla + pad * 2, height: alto)
+        NSSize(width: CGFloat(celdas.count) * casilla + pad * 2 + (hayModos ? sep : 0),
+               height: alto)
     }
 
     override var isFlipped: Bool { false }
     override var isOpaque: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// El hueco extra separa los modos de la escalera: sin él, las dos filas de
+    /// casillas se leen como una sola lista de siete cosas del mismo tipo.
     private func caja(_ i: Int) -> CGRect {
-        CGRect(x: pad + CGFloat(i) * casilla, y: (alto - casilla) / 2,
-               width: casilla, height: casilla)
+        let modos = hayModos ? ModoGoma.allCases.count : 0
+        let extra: CGFloat = (hayModos && i >= modos) ? sep : 0
+        return CGRect(x: pad + CGFloat(i) * casilla + extra, y: (alto - casilla) / 2,
+                      width: casilla, height: casilla)
     }
 
+    /// La casilla del grosor que está puesto ahora.
     private var indiceActual: Int {
         let g = ctrl?.grosorActual ?? 6
-        return escalera.enumerated().min { abs($0.element - g) < abs($1.element - g) }?.offset ?? 0
+        let modos = hayModos ? ModoGoma.allCases.count : 0
+        let i = escalera.enumerated()
+            .min { abs($0.element - g) < abs($1.element - g) }?.offset ?? 0
+        return modos + i
     }
 
     // MARK: pintar
@@ -163,36 +197,71 @@ final class TiraVista: NSView, NSViewToolTipOwner {
         ctx.setLineWidth(1)
         ctx.strokePath()
 
-        // La pastilla de la selección SE DESLIZA de una casilla a otra. Es la
-        // misma idea que el aviso del dial en sfmap: interpolar convierte un
-        // dato en un gesto, y de paso dice de dónde vienes.
-        if deslizador.valor <= 0.01 && indiceActual > 0 {
-            deslizador.plantar(Double(indiceActual))   // abre con la selección puesta
-        } else {
-            deslizador.objetivo = Double(indiceActual)
-        }
-        let x = pad + CGFloat(deslizador.valor) * casilla
-        let pastilla = CGRect(x: x, y: (alto - casilla) / 2, width: casilla, height: casilla)
-        let p = CGPath(roundedRect: pastilla.insetBy(dx: 2, dy: 2),
-                       cornerWidth: 9, cornerHeight: 9, transform: nil)
-        ctx.addPath(p)
-        let (rr, gg, bb) = Config.morado.rgb
-        ctx.setFillColor(CGColor(srgbRed: rr, green: gg, blue: bb, alpha: 0.92))
-        ctx.fillPath()
-
         let inst = ctrl.instrumentoEfectivo
+        let lista = celdas
+
+        // La pastilla del GROSOR se DESLIZA de una casilla a otra. Es la misma
+        // idea que el aviso del dial en sfmap: interpolar convierte un dato en
+        // un gesto, y de paso dice de dónde vienes. Va en píxeles y no en
+        // índices porque entre los modos y la escalera hay un hueco.
+        let destino = Double(caja(indiceActual).minX)
+        if deslizador.valor <= 0.01 { deslizador.plantar(destino) }
+        else { deslizador.objetivo = destino }
+        pastilla(CGRect(x: CGFloat(deslizador.valor), y: (alto - casilla) / 2,
+                        width: casilla, height: casilla), en: ctx)
+
+        // La del MODO no se desliza: son dos casillas pegadas y un viaje de 36
+        // px entre vecinas se lee como un parpadeo, no como un movimiento.
+        if hayModos, let i = lista.firstIndex(of: .modo(ctrl.modoGoma)) {
+            pastilla(caja(i), en: ctx)
+        }
+
         let mayor = escalera.last ?? 1
-        for (i, g) in escalera.enumerated() {
+        for (i, celda) in lista.enumerated() {
             let c = caja(i)
-            if sobre == i && i != indiceActual {
+            let activo: Bool = switch celda {
+                case .modo(let m): m == ctrl.modoGoma
+                case .grosor: i == indiceActual
+            }
+            if sobre == i && !activo {
                 let h = CGPath(roundedRect: c.insetBy(dx: 2, dy: 2), cornerWidth: 9,
                                cornerHeight: 9, transform: nil)
                 ctx.addPath(h)
                 ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.10))
                 ctx.fillPath()
             }
-            marca(inst, g: g, mayor: mayor, en: c, ctx: ctx, activo: i == indiceActual)
+            switch celda {
+            case .modo(let m):
+                icono(m.simbolo, c, activo ? .white : NSColor(white: 0.72, alpha: 1), ctx)
+            case .grosor(let g):
+                marca(inst, g: g, mayor: mayor, en: c, ctx: ctx, activo: activo)
+            }
         }
+    }
+
+    private func pastilla(_ r: CGRect, en ctx: CGContext) {
+        let p = CGPath(roundedRect: r.insetBy(dx: 2, dy: 2), cornerWidth: 9,
+                       cornerHeight: 9, transform: nil)
+        ctx.addPath(p)
+        let (rr, gg, bb) = Config.morado.rgb
+        ctx.setFillColor(CGColor(srgbRed: rr, green: gg, blue: bb, alpha: 0.92))
+        ctx.fillPath()
+    }
+
+    private func icono(_ nombre: String, _ r: CGRect, _ color: NSColor, _ ctx: CGContext) {
+        let cfg = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
+        guard let img = NSImage(systemSymbolName: nombre, accessibilityDescription: nil)?
+                .withSymbolConfiguration(cfg) else { return }
+        let s = img.size
+        let tenido = NSImage(size: s)
+        tenido.lockFocus()
+        color.set()
+        let todo = NSRect(origin: .zero, size: s)
+        img.draw(in: todo)
+        todo.fill(using: .sourceAtop)
+        tenido.unlockFocus()
+        tenido.draw(in: NSRect(x: r.midX - s.width / 2, y: r.midY - s.height / 2,
+                               width: s.width, height: s.height))
     }
 
     /// Cada instrumento se dibuja como lo que ES: el lápiz un disco lleno, el
@@ -232,16 +301,24 @@ final class TiraVista: NSView, NSViewToolTipOwner {
 
     override func mouseDown(with e: NSEvent) {
         let p = convert(e.locationInWindow, from: nil)
-        guard let i = (0..<escalera.count).first(where: { caja($0).contains(p) }) else { return }
-        ctrl?.ponerGrosor(escalera[i])
-        needsDisplay = true
-        // Se cierra al elegir: la tira es un gesto, no un panel que se queda.
-        tira?.cerrar()
+        let lista = celdas
+        guard let i = lista.indices.first(where: { caja($0).contains(p) }) else { return }
+        switch lista[i] {
+        case .modo(let m):
+            // Elegir modo NO cierra: casi siempre lo siguiente es calibrar la
+            // goma que acabas de elegir, y cerrar obligaría a volver a abrir.
+            ctrl?.ponerModoGoma(m)
+            needsDisplay = true
+        case .grosor(let g):
+            ctrl?.ponerGrosor(g)
+            needsDisplay = true
+            tira?.cerrar()   // el calibre es el último paso: la tira es un gesto
+        }
     }
 
     override func mouseMoved(with e: NSEvent) {
         let p = convert(e.locationInWindow, from: nil)
-        let nuevo = (0..<escalera.count).first { caja($0).contains(p) }
+        let nuevo = celdas.indices.first { caja($0).contains(p) }
         if nuevo != sobre { sobre = nuevo; needsDisplay = true }
     }
 
@@ -262,21 +339,24 @@ final class TiraVista: NSView, NSViewToolTipOwner {
         super.viewDidMoveToWindow()
         updateTrackingAreas()
         deslizador.alRepintar = { [weak self] in self?.needsDisplay = true }
-        deslizador.plantar(Double(indiceActual))
+        deslizador.plantar(Double(caja(indiceActual).minX))
     }
 
     override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
 
     func recolocarRotulos() {
         removeAllToolTips()
-        for i in 0..<escalera.count { addToolTip(caja(i), owner: self, userData: nil) }
+        for i in celdas.indices { addToolTip(caja(i), owner: self, userData: nil) }
     }
 
     func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag,
               point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
-        guard let i = (0..<escalera.count).first(where: { caja($0).contains(point) })
-        else { return "" }
-        return "Grosor \(Int(escalera[i]))"
+        let lista = celdas
+        guard let i = lista.indices.first(where: { caja($0).contains(point) }) else { return "" }
+        return switch lista[i] {
+            case .modo(let m): "\(m.nombre) — \(m.ayuda)  (E alterna)"
+            case .grosor(let g): "Grosor \(Int(g))"
+        }
     }
 }
 

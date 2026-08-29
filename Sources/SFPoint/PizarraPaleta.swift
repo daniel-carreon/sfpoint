@@ -191,11 +191,13 @@ final class PaletaVista: NSView, NSViewToolTipOwner {
         zonas(ancho: bounds.width).lista.first { $0.a == .grosor }?.r ?? .zero
     }
 
-    /// La misma caja, pero en coordenadas de PANTALLA: la tira sale de aquí.
-    var anclaGrosor: CGRect {
+    /// Una caja de la paleta en coordenadas de PANTALLA: la tira sale de ahí.
+    func ancla(_ r: CGRect) -> CGRect {
         guard let w = window else { return .zero }
-        return w.convertToScreen(convert(muestraRect, to: nil))
+        return w.convertToScreen(convert(r, to: nil))
     }
+
+    var anclaGrosor: CGRect { ancla(muestraRect) }
 
     /// El calibre PERSIGUE al nuevo en vez de saltar. Girando el dial rápido,
     /// una bola que parpadea no dice hacia dónde vas; una que crece, sí.
@@ -239,7 +241,11 @@ final class PaletaVista: NSView, NSViewToolTipOwner {
             case .instrumento(let i):
                 let activo = ctrl.instrumentoEfectivo == i
                 pintarBoton(zona.r, activo: activo, en: ctx)
-                icono(simbolo(i), zona.r, activo ? .white : NSColor(white: 0.72, alpha: 1), ctx)
+                // La goma DICE cuál de las dos es: entera o parcial. Dos modos
+                // con el mismo icono es un interruptor invisible, y en una goma
+                // eso se paga borrando de más.
+                let nombre = i == .goma ? ctrl.modoGoma.simbolo : simbolo(i)
+                icono(nombre, zona.r, activo ? .white : NSColor(white: 0.72, alpha: 1), ctx)
 
             case .color(let c):
                 let activo = ctrl.color == c && ctrl.instrumentoEfectivo != .goma
@@ -388,7 +394,21 @@ final class PaletaVista: NSView, NSViewToolTipOwner {
         case .asa:
             arrastrando = true
         case .instrumento(let i):
-            ctrl.elegir(i)
+            /*
+             * TOCAR LA HERRAMIENTA ACTIVA ABRE LO SUYO.
+             *
+             * Es la convención de las apps de lápiz (Freeform, GoodNotes,
+             * Procreate): el primer toque elige, el segundo enseña las opciones.
+             * Así la goma no necesita un botón extra para sus dos modos ni un
+             * ajuste escondido — y la regla vale igual para el lápiz y el
+             * marcador, que abren su escalera.
+             */
+            if ctrl.instrumentoEfectivo == i {
+                paleta?.tira.alternar(ancla: ancla(zona.r))
+            } else {
+                ctrl.elegir(i)
+                paleta?.cerrarTira()
+            }
         case .color(let c):
             ctrl.elegir(c)
         case .grosor:
@@ -444,7 +464,9 @@ final class PaletaVista: NSView, NSViewToolTipOwner {
         case .asa:                    return "Arrástrala para moverla · H la esconde"
         case .instrumento(.lapiz):    return "Lápiz  (P)"
         case .instrumento(.marcador): return "Marcador translúcido  (M)"
-        case .instrumento(.goma):     return "Goma  (E)  ·  o voltea la pluma"
+        case .instrumento(.goma):
+            let m = ctrl?.modoGoma ?? .parcial
+            return "\(m.nombre): \(m.ayuda.lowercased())  ·  E alterna  ·  o voltea la pluma"
         case .color(let c):           return "\(c.nombre)  (\((TintaColor.allCases.firstIndex(of: c) ?? 0) + 1))"
         case .grosor:                 return "Grosor — clic para la escalera  ·  dial de la tableta, rueda, [ ]"
         case .deshacer:               return "Deshacer  (⌘Z)"

@@ -70,7 +70,12 @@ final class PizarraOverlayView: NSView {
             let r = ctrl.grosorGoma / 2
             ctx.setLineWidth(1.5)
             ctx.setStrokeColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.95))
+            // CONTINUO = borra por donde pasas · PUNTEADO = se lleva el trazo
+            // entero. La goma que se come un trazo completo tiene que avisar
+            // ANTES de tocarlo, no después.
+            ctx.setLineDash(phase: 0, lengths: ctrl.modoGoma == .trazo ? [5, 4] : [])
             ctx.strokeEllipse(in: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2))
+            ctx.setLineDash(phase: 0, lengths: [])
             ctx.setLineWidth(3.0)
             ctx.setStrokeColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.30))
             ctx.strokeEllipse(in: CGRect(x: p.x - r - 2, y: p.y - r - 2,
